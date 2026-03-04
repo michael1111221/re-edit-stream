@@ -506,11 +506,12 @@ MONITOR_CHANNELS=@channel1,@channel2`}</pre>
                     <li>ערכו את קובץ <code className="bg-secondary px-1 rounded text-xs">~/tg-monitor/.env</code> - עדכנו <strong>INGEST_API_KEY</strong> ו-<strong>MONITOR_CHANNELS</strong></li>
                     <li>הריצו <code className="bg-secondary px-1 rounded text-xs">python3 monitor.py</code> - תקבלו קוד אימות בטלגרם, הזינו אותו</li>
                     <li>הפעילו כ-service: <code className="bg-secondary px-1 rounded text-xs">sudo systemctl enable --now tg-monitor</code></li>
-                  </ol>
-            </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2 border-t border-border pt-3">
-              <Label className="text-sm text-muted-foreground">כתובת Ingest (לקובץ .env בשרת):</Label>
+              <Label className="text-sm text-muted-foreground">כתובת Ingest (לקובץ .env):</Label>
               <div className="flex items-center gap-2">
                 <code className="block text-xs bg-secondary p-2 rounded font-mono break-all flex-1" dir="ltr">{ingestUrl}</code>
                 <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(ingestUrl)}>
