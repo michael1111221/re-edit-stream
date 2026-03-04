@@ -506,6 +506,7 @@ MONITOR_CHANNELS=@channel1,@channel2`}</pre>
                     <li>ערכו את קובץ <code className="bg-secondary px-1 rounded text-xs">~/tg-monitor/.env</code> - עדכנו <strong>INGEST_API_KEY</strong> ו-<strong>MONITOR_CHANNELS</strong></li>
                     <li>הריצו <code className="bg-secondary px-1 rounded text-xs">python3 monitor.py</code> - תקבלו קוד אימות בטלגרם, הזינו אותו</li>
                     <li>הפעילו כ-service: <code className="bg-secondary px-1 rounded text-xs">sudo systemctl enable --now tg-monitor</code></li>
+                  </ol>
                 </div>
               </div>
             )}
