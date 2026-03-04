@@ -7,14 +7,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  * Receives posts from an external MTProto client (running on VPS)
  * that monitors source channels the bot can't access.
  * 
+ * Auth: Bearer token must match INGEST_API_KEY secret.
+ * 
  * Expected POST body:
  * {
- *   source_channel_handle: "@channelname",  // or chat_id as string
- *   message_id: 12345,                      // original message ID
+ *   source_channel_handle: "@channelname",
+ *   message_id: 12345,
  *   text: "Post text/caption",
  *   media_type: "video" | "photo" | "document" | "animation" | "text",
- *   media_file_id?: "...",                  // Telegram file_id if bot has access
- *   media_url?: "...",                      // Direct URL to media (from MTProto download)
+ *   media_file_id?: "...",
+ *   media_url?: "...",
+ *   media_base64?: "...",       // base64-encoded media from MTProto download
+ *   media_filename?: "...",
+ *   media_mime?: "...",
  * }
  */
 
@@ -34,6 +39,19 @@ serve(async (req) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  const INGEST_API_KEY = Deno.env.get("INGEST_API_KEY");
+
+  // Auth check
+  if (INGEST_API_KEY) {
+    const authHeader = req.headers.get("Authorization");
+    const token = authHeader?.replace("Bearer ", "");
+    if (token !== INGEST_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
 
   if (!BOT_TOKEN) {
     return new Response(
@@ -54,6 +72,9 @@ serve(async (req) => {
       media_type = "text",
       media_file_id,
       media_url,
+      media_base64,
+      media_filename,
+      media_mime,
     } = body;
 
     if (!source_channel_handle) {
@@ -85,6 +106,16 @@ serve(async (req) => {
       );
     }
 
+    // If media_base64 is provided, upload to Telegram via sendXxx with multipart
+    let resolvedMediaUrl = media_url || media_file_id;
+
+    if (media_base64 && !resolvedMediaUrl) {
+      // Upload base64 media to storage, then use the public URL
+      // Or send directly to Telegram via multipart form
+      // For simplicity, we'll decode and send as multipart to Telegram
+      resolvedMediaUrl = `data:${media_mime || "application/octet-stream"};base64,${media_base64}`;
+    }
+
     // Find active mappings
     const { data: mappings } = await supabase
       .from("channel_mappings")
@@ -99,12 +130,20 @@ serve(async (req) => {
       );
     }
 
+    // Update channel video count
+    await supabase
+      .from("channels")
+      .update({ video_count: sourceChannel.video_count + 1 })
+      .eq("id", sourceChannel.id);
+
     const results: any[] = [];
 
     for (const mapping of mappings) {
       try {
         const result = await processMapping(
-          supabase, baseUrl, mapping, text, media_type, media_file_id, media_url, LOVABLE_API_KEY
+          supabase, baseUrl, mapping, text, media_type,
+          media_base64, media_filename, media_mime,
+          media_file_id, media_url, LOVABLE_API_KEY
         );
         results.push({ mapping_id: mapping.id, target: mapping.target_channel?.handle, ...result });
       } catch (err: any) {
@@ -132,6 +171,9 @@ async function processMapping(
   mapping: any,
   originalText: string,
   mediaType: string,
+  mediaBase64?: string,
+  mediaFilename?: string,
+  mediaMime?: string,
   mediaFileId?: string,
   mediaUrl?: string,
   lovableApiKey?: string
@@ -153,7 +195,6 @@ async function processMapping(
     if (bannedWords && bannedWords.length > 0) {
       const lowerText = processedText.toLowerCase();
 
-      // skip_post check
       for (const bw of bannedWords) {
         if (bw.action === "skip_post" && lowerText.includes(bw.word.toLowerCase())) {
           console.log(`Skipping post — banned word "${bw.word}"`);
@@ -161,7 +202,6 @@ async function processMapping(
         }
       }
 
-      // remove_word
       for (const bw of bannedWords) {
         if (bw.action === "remove_word") {
           const regex = new RegExp(escapeRegex(bw.word), "gi");
@@ -210,39 +250,53 @@ async function processMapping(
     ? targetChannel.handle
     : `@${targetChannel.handle}`;
 
-  const baseBody: any = {
-    chat_id: targetChatId,
-    parse_mode: "HTML",
-    ...(reply_markup ? { reply_markup } : {}),
-  };
+  let result: any;
 
-  let method = "sendMessage";
-  let sendBody: any = { ...baseBody, text: processedText || "📎" };
+  // If we have base64 media, send via multipart form data
+  if (mediaBase64 && mediaType !== "text") {
+    result = await sendMediaMultipart(
+      baseUrl, targetChatId, mediaType, mediaBase64,
+      mediaFilename || "media.bin", mediaMime || "application/octet-stream",
+      processedText, reply_markup
+    );
+  } else {
+    // Use URL or file_id
+    const baseBody: any = {
+      chat_id: targetChatId,
+      parse_mode: "HTML",
+      ...(reply_markup ? { reply_markup } : {}),
+    };
 
-  if (mediaType === "video" && (mediaFileId || mediaUrl)) {
-    method = "sendVideo";
-    sendBody = { ...baseBody, video: mediaFileId || mediaUrl, caption: processedText };
-  } else if (mediaType === "photo" && (mediaFileId || mediaUrl)) {
-    method = "sendPhoto";
-    sendBody = { ...baseBody, photo: mediaFileId || mediaUrl, caption: processedText };
-  } else if (mediaType === "document" && (mediaFileId || mediaUrl)) {
-    method = "sendDocument";
-    sendBody = { ...baseBody, document: mediaFileId || mediaUrl, caption: processedText };
-  } else if (mediaType === "animation" && (mediaFileId || mediaUrl)) {
-    method = "sendAnimation";
-    sendBody = { ...baseBody, animation: mediaFileId || mediaUrl, caption: processedText };
+    let method = "sendMessage";
+    let sendBody: any = { ...baseBody, text: processedText || "📎" };
+
+    const mediaSource = mediaFileId || mediaUrl;
+
+    if (mediaType === "video" && mediaSource) {
+      method = "sendVideo";
+      sendBody = { ...baseBody, video: mediaSource, caption: processedText };
+    } else if (mediaType === "photo" && mediaSource) {
+      method = "sendPhoto";
+      sendBody = { ...baseBody, photo: mediaSource, caption: processedText };
+    } else if (mediaType === "document" && mediaSource) {
+      method = "sendDocument";
+      sendBody = { ...baseBody, document: mediaSource, caption: processedText };
+    } else if (mediaType === "animation" && mediaSource) {
+      method = "sendAnimation";
+      sendBody = { ...baseBody, animation: mediaSource, caption: processedText };
+    }
+
+    const resp = await fetch(`${baseUrl}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sendBody),
+    });
+
+    result = await resp.json();
   }
 
-  const resp = await fetch(`${baseUrl}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(sendBody),
-  });
-
-  const result = await resp.json();
-
   if (!result.ok) {
-    console.error(`Telegram ${method} failed:`, result.description);
+    console.error(`Telegram send failed:`, result.description);
     return { success: false, error: result.description };
   }
 
@@ -258,6 +312,43 @@ async function processMapping(
   });
 
   return { success: true };
+}
+
+async function sendMediaMultipart(
+  baseUrl: string,
+  chatId: string,
+  mediaType: string,
+  base64Data: string,
+  filename: string,
+  mimeType: string,
+  caption: string,
+  replyMarkup?: any
+): Promise<any> {
+  const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+  const blob = new Blob([binaryData], { type: mimeType });
+
+  const methodMap: Record<string, { method: string; field: string }> = {
+    video: { method: "sendVideo", field: "video" },
+    photo: { method: "sendPhoto", field: "photo" },
+    document: { method: "sendDocument", field: "document" },
+    animation: { method: "sendAnimation", field: "animation" },
+  };
+
+  const config = methodMap[mediaType] || methodMap.document;
+
+  const formData = new FormData();
+  formData.append("chat_id", chatId);
+  formData.append(config.field, blob, filename);
+  if (caption) formData.append("caption", caption);
+  formData.append("parse_mode", "HTML");
+  if (replyMarkup) formData.append("reply_markup", JSON.stringify(replyMarkup));
+
+  const resp = await fetch(`${baseUrl}/${config.method}`, {
+    method: "POST",
+    body: formData,
+  });
+
+  return await resp.json();
 }
 
 async function translateText(text: string, targetLanguage: string, apiKey: string): Promise<string | null> {

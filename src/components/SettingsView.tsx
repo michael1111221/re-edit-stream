@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,10 +12,16 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Webhook
+  Webhook,
+  User,
+  Eye,
+  EyeOff,
+  Copy,
+  Server
 } from "lucide-react";
 import { setWebhook, deleteWebhook, getBotInfo } from "@/lib/telegram";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 export function SettingsView() {
   const { toast } = useToast();
@@ -24,7 +30,56 @@ export function SettingsView() {
   const [botInfo, setBotInfo] = useState<any>(null);
   const [botLoading, setBotLoading] = useState(false);
 
+  // MTProto settings
+  const [apiId, setApiId] = useState("");
+  const [apiHash, setApiHash] = useState("");
+  const [phone, setPhone] = useState("");
+  const [showApiHash, setShowApiHash] = useState(false);
+  const [mtprotoSaving, setMtprotoSaving] = useState(false);
+  const [mtprotoLoaded, setMtprotoLoaded] = useState(false);
+
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`;
+  const ingestUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ingest-post`;
+
+  // Load MTProto settings
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase
+        .from("system_settings")
+        .select("*")
+        .eq("key", "mtproto_config")
+        .single();
+      
+      if (data?.value) {
+        const val = data.value as any;
+        setApiId(val.api_id || "");
+        setApiHash(val.api_hash || "");
+        setPhone(val.phone || "");
+      }
+      setMtprotoLoaded(true);
+    }
+    load();
+  }, []);
+
+  const handleSaveMtproto = async () => {
+    setMtprotoSaving(true);
+    try {
+      const { error } = await supabase
+        .from("system_settings")
+        .upsert({
+          key: "mtproto_config",
+          value: { api_id: apiId, api_hash: apiHash, phone },
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+      toast({ title: "✅ הגדרות MTProto נשמרו!" });
+    } catch (err: any) {
+      toast({ title: "שגיאה", description: err.message, variant: "destructive" });
+    } finally {
+      setMtprotoSaving(false);
+    }
+  };
 
   const handleConnectWebhook = async () => {
     setWebhookLoading(true);
@@ -77,14 +132,109 @@ export function SettingsView() {
     }
   };
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "הועתק!" });
+  };
+
   return (
     <div className="space-y-6 max-w-2xl" dir="rtl">
       <h2 className="text-xl font-semibold text-foreground">הגדרות</h2>
+
+      {/* MTProto / User API Connection */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
+      >
+        <div className="flex items-center gap-2 text-foreground">
+          <User className="w-5 h-5 text-accent" />
+          <h3 className="font-medium">חיבור חשבון טלגרם (MTProto)</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          חיבור חשבון משתמש טלגרם לניטור ערוצי מקור. נדרש API ID ו-API Hash מ-
+          <a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline mr-1">
+            my.telegram.org
+          </a>
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-sm text-muted-foreground">API ID</Label>
+            <Input
+              value={apiId}
+              onChange={(e) => setApiId(e.target.value)}
+              placeholder="12345678"
+              className="mt-1 bg-secondary border-border font-mono"
+              dir="ltr"
+            />
+          </div>
+          <div>
+            <Label className="text-sm text-muted-foreground">API Hash</Label>
+            <div className="relative mt-1">
+              <Input
+                type={showApiHash ? "text" : "password"}
+                value={apiHash}
+                onChange={(e) => setApiHash(e.target.value)}
+                placeholder="abcdef1234567890..."
+                className="bg-secondary border-border font-mono pl-10"
+                dir="ltr"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiHash(!showApiHash)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showApiHash ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <Label className="text-sm text-muted-foreground">מספר טלפון</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+972501234567"
+              className="mt-1 bg-secondary border-border font-mono"
+              dir="ltr"
+            />
+          </div>
+
+          <Button
+            onClick={handleSaveMtproto}
+            disabled={mtprotoSaving || !apiId || !apiHash}
+            className="gap-2"
+          >
+            {mtprotoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            שמור הגדרות
+          </Button>
+        </div>
+
+        {/* VPS Setup Info */}
+        <div className="border-t border-border pt-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Server className="w-4 h-4 text-muted-foreground" />
+            <Label className="text-sm text-muted-foreground">הגדרות VPS</Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            הסקריפט של הניטור צריך לרוץ על שרת VPS חיצוני. הגדר את הכתובת הבאה כ-<code className="bg-secondary px-1 rounded">INGEST_URL</code>:
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="block text-xs bg-secondary p-2 rounded font-mono break-all flex-1" dir="ltr">
+              {ingestUrl}
+            </code>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(ingestUrl)}>
+              <Copy className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Bot & Webhook Settings */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
         className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
       >
         <div className="flex items-center gap-2 text-foreground">
@@ -117,9 +267,14 @@ export function SettingsView() {
               <Webhook className="w-4 h-4 text-muted-foreground" />
               <Label className="text-sm text-muted-foreground">Webhook URL</Label>
             </div>
-            <code className="block text-xs bg-secondary p-2 rounded font-mono break-all" dir="ltr">
-              {webhookUrl}
-            </code>
+            <div className="flex items-center gap-2">
+              <code className="block text-xs bg-secondary p-2 rounded font-mono break-all flex-1" dir="ltr">
+                {webhookUrl}
+              </code>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(webhookUrl)}>
+                <Copy className="w-3.5 h-3.5" />
+              </Button>
+            </div>
             <div className="flex gap-2">
               <Button
                 onClick={handleConnectWebhook}
@@ -157,7 +312,7 @@ export function SettingsView() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
+        transition={{ delay: 0.1 }}
         className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
       >
         <div className="flex items-center gap-2 text-foreground">
@@ -189,7 +344,7 @@ export function SettingsView() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
+        transition={{ delay: 0.15 }}
         className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
       >
         <div className="flex items-center gap-2 text-foreground">
@@ -217,7 +372,7 @@ export function SettingsView() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
+        transition={{ delay: 0.2 }}
         className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
       >
         <div className="flex items-center gap-2 text-foreground">
