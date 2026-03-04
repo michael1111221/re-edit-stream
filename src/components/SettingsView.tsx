@@ -24,7 +24,8 @@ import {
   ChevronUp,
   Globe,
   Key,
-  Smartphone
+  Smartphone,
+  Monitor
 } from "lucide-react";
 import { setWebhook, deleteWebhook, getBotInfo } from "@/lib/telegram";
 import { useToast } from "@/hooks/use-toast";
