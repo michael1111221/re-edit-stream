@@ -17,7 +17,14 @@ import {
   Eye,
   EyeOff,
   Copy,
-  Server
+  Server,
+  ExternalLink,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  Globe,
+  Key,
+  Smartphone
 } from "lucide-react";
 import { setWebhook, deleteWebhook, getBotInfo } from "@/lib/telegram";
 import { useToast } from "@/hooks/use-toast";
@@ -37,6 +44,8 @@ export function SettingsView() {
   const [showApiHash, setShowApiHash] = useState(false);
   const [mtprotoSaving, setMtprotoSaving] = useState(false);
   const [mtprotoLoaded, setMtprotoLoaded] = useState(false);
+  const [setupStep, setSetupStep] = useState(1);
+  const [showSetupScript, setShowSetupScript] = useState(false);
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`;
   const ingestUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ingest-post`;
@@ -132,102 +141,308 @@ export function SettingsView() {
     }
   };
 
+  const generateSetupScript = () => {
+    return `#!/bin/bash
+# === Telegram Channel Monitor - Quick Setup ===
+# Run this on your VPS (Ubuntu/Debian):
+# curl -sL <paste_url> | bash
+# OR copy-paste this entire script
+
+set -e
+
+echo "🔧 Installing dependencies..."
+sudo apt-get update -qq && sudo apt-get install -y python3 python3-pip -qq
+
+echo "📁 Creating project folder..."
+mkdir -p ~/tg-monitor && cd ~/tg-monitor
+
+echo "📦 Installing Python packages..."
+pip3 install telethon aiohttp
+
+echo "📝 Creating monitor script..."
+cat > monitor.py << 'PYEOF'
+import os, asyncio, logging, base64, json
+from telethon import TelegramClient, events
+import aiohttp
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("monitor")
+
+API_ID = int(os.environ["TELEGRAM_API_ID"])
+API_HASH = os.environ["TELEGRAM_API_HASH"]
+PHONE = os.environ["TELEGRAM_PHONE"]
+INGEST_URL = os.environ["INGEST_URL"]
+INGEST_KEY = os.environ["INGEST_API_KEY"]
+CHANNELS = [c.strip() for c in os.environ.get("MONITOR_CHANNELS", "").split(",") if c.strip()]
+
+client = TelegramClient("session", API_ID, API_HASH)
+
+async def send_to_ingest(payload):
+    async with aiohttp.ClientSession() as s:
+        async with s.post(INGEST_URL, json=payload, headers={"Authorization": f"Bearer {INGEST_KEY}", "Content-Type": "application/json"}) as r:
+            logger.info(f"Ingest response: {r.status}")
+
+@client.on(events.NewMessage(chats=CHANNELS if CHANNELS else None))
+async def handler(event):
+    msg = event.message
+    chat = await event.get_chat()
+    handle = getattr(chat, "username", None) or str(chat.id)
+    media_type, media_b64, media_name, media_mime = None, None, None, None
+
+    if msg.video: media_type = "video"
+    elif msg.photo: media_type = "photo"
+    elif msg.document: media_type = "document"
+    elif msg.gif: media_type = "animation"
+
+    if media_type and msg.media:
+        data = await client.download_media(msg, bytes)
+        if data and len(data) < 10*1024*1024:
+            media_b64 = base64.b64encode(data).decode()
+            media_name = getattr(msg.media, "file_name", f"media.bin") if hasattr(msg.media, "file_name") else f"media.bin"
+            media_mime = msg.media.document.mime_type if hasattr(msg.media, "document") and msg.media.document else "application/octet-stream"
+
+    await send_to_ingest({
+        "source_channel_handle": f"@{handle}",
+        "message_id": msg.id,
+        "text": msg.text or "",
+        "media_type": media_type,
+        "media_base64": media_b64,
+        "media_filename": media_name,
+        "media_mime": media_mime
+    })
+
+async def main():
+    await client.start(phone=PHONE)
+    logger.info(f"Monitoring {len(CHANNELS) if CHANNELS else 'ALL'} channels...")
+    await client.run_until_disconnected()
+
+asyncio.run(main())
+PYEOF
+
+echo "📝 Creating .env file..."
+cat > .env << ENVEOF
+TELEGRAM_API_ID=${apiId}
+TELEGRAM_API_HASH=${apiHash}
+TELEGRAM_PHONE=${phone}
+INGEST_URL=${ingestUrl}
+INGEST_API_KEY=YOUR_INGEST_KEY_HERE
+MONITOR_CHANNELS=@channel1,@channel2
+ENVEOF
+
+echo "📝 Creating systemd service..."
+sudo tee /etc/systemd/system/tg-monitor.service > /dev/null << SVCEOF
+[Unit]
+Description=Telegram Channel Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$HOME/tg-monitor
+EnvironmentFile=$HOME/tg-monitor/.env
+ExecStart=/usr/bin/python3 monitor.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+echo ""
+echo "✅ Installation complete!"
+echo ""
+echo "📋 Next steps:"
+echo "  1. Edit ~/tg-monitor/.env and set INGEST_API_KEY and MONITOR_CHANNELS"
+echo "  2. Run: cd ~/tg-monitor && python3 monitor.py"
+echo "     (First run will ask for Telegram verification code)"
+echo "  3. After verification, enable the service:"
+echo "     sudo systemctl enable --now tg-monitor"
+echo ""
+`;
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: "הועתק!" });
   };
 
+  const steps = [
+    { num: 1, icon: Globe, title: "קבל API ID ו-Hash", done: !!apiId && !!apiHash },
+    { num: 2, icon: Smartphone, title: "הזן מספר טלפון", done: !!phone },
+    { num: 3, icon: Key, title: "שמור הגדרות", done: mtprotoLoaded && !!apiId },
+    { num: 4, icon: Server, title: "התקן על שרת VPS", done: false },
+  ];
+
   return (
     <div className="space-y-6 max-w-2xl" dir="rtl">
       <h2 className="text-xl font-semibold text-foreground">הגדרות</h2>
 
-      {/* MTProto / User API Connection */}
+      {/* MTProto Setup Wizard */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
+        className="rounded-lg border border-border bg-card p-5 shadow-card space-y-5"
       >
         <div className="flex items-center gap-2 text-foreground">
           <User className="w-5 h-5 text-accent" />
-          <h3 className="font-medium">חיבור חשבון טלגרם (MTProto)</h3>
+          <h3 className="font-medium">חיבור ניטור ערוצי מקור</h3>
         </div>
-        <p className="text-sm text-muted-foreground">
-          חיבור חשבון משתמש טלגרם לניטור ערוצי מקור. נדרש API ID ו-API Hash מ-
-          <a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline mr-1">
-            my.telegram.org
-          </a>
-        </p>
 
-        <div className="space-y-3">
-          <div>
-            <Label className="text-sm text-muted-foreground">API ID</Label>
-            <Input
-              value={apiId}
-              onChange={(e) => setApiId(e.target.value)}
-              placeholder="12345678"
-              className="mt-1 bg-secondary border-border font-mono"
-              dir="ltr"
-            />
-          </div>
-          <div>
-            <Label className="text-sm text-muted-foreground">API Hash</Label>
-            <div className="relative mt-1">
-              <Input
-                type={showApiHash ? "text" : "password"}
-                value={apiHash}
-                onChange={(e) => setApiHash(e.target.value)}
-                placeholder="abcdef1234567890..."
-                className="bg-secondary border-border font-mono pl-10"
-                dir="ltr"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiHash(!showApiHash)}
-                className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showApiHash ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
+        {/* Progress Steps */}
+        <div className="flex items-center gap-1">
+          {steps.map((step, i) => (
+            <div key={step.num} className="flex items-center gap-1 flex-1">
+              <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold shrink-0 transition-colors ${
+                step.done ? "bg-accent text-accent-foreground" : setupStep === step.num ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+              }`}>
+                {step.done ? <CheckCircle2 className="w-4 h-4" /> : step.num}
+              </div>
+              <span className={`text-xs hidden sm:inline ${setupStep === step.num ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                {step.title}
+              </span>
+              {i < steps.length - 1 && <div className="flex-1 h-px bg-border mx-1" />}
             </div>
-          </div>
-          <div>
-            <Label className="text-sm text-muted-foreground">מספר טלפון</Label>
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+972501234567"
-              className="mt-1 bg-secondary border-border font-mono"
-              dir="ltr"
-            />
-          </div>
-
-          <Button
-            onClick={handleSaveMtproto}
-            disabled={mtprotoSaving || !apiId || !apiHash}
-            className="gap-2"
-          >
-            {mtprotoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            שמור הגדרות
-          </Button>
+          ))}
         </div>
 
-        {/* VPS Setup Info */}
-        <div className="border-t border-border pt-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-muted-foreground" />
-            <Label className="text-sm text-muted-foreground">הגדרות VPS</Label>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            הסקריפט של הניטור צריך לרוץ על שרת VPS חיצוני. הגדר את הכתובת הבאה כ-<code className="bg-secondary px-1 rounded">INGEST_URL</code>:
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="block text-xs bg-secondary p-2 rounded font-mono break-all flex-1" dir="ltr">
-              {ingestUrl}
-            </code>
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(ingestUrl)}>
-              <Copy className="w-3.5 h-3.5" />
+        {/* Step 1: Get API credentials */}
+        {setupStep === 1 && (
+          <div className="space-y-3 border-t border-border pt-4">
+            <div className="bg-secondary/50 rounded-lg p-4 space-y-2">
+              <p className="text-sm text-foreground font-medium">📋 איך משיגים API ID ו-Hash?</p>
+              <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+                <li>היכנסו ל-<a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline">my.telegram.org</a> <ExternalLink className="w-3 h-3 inline" /></li>
+                <li>התחברו עם מספר הטלפון שלכם</li>
+                <li>לחצו על "API development tools"</li>
+                <li>מלאו שם אפליקציה (כל שם) ולחצו Create</li>
+                <li>העתיקו את ה-<strong>App api_id</strong> ו-<strong>App api_hash</strong></li>
+              </ol>
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">API ID</Label>
+              <Input value={apiId} onChange={(e) => setApiId(e.target.value)} placeholder="12345678" className="mt-1 bg-secondary border-border font-mono" dir="ltr" />
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">API Hash</Label>
+              <div className="relative mt-1">
+                <Input type={showApiHash ? "text" : "password"} value={apiHash} onChange={(e) => setApiHash(e.target.value)} placeholder="abcdef1234567890..." className="bg-secondary border-border font-mono pl-10" dir="ltr" />
+                <button type="button" onClick={() => setShowApiHash(!showApiHash)} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showApiHash ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <Button onClick={() => setSetupStep(2)} disabled={!apiId || !apiHash} className="gap-2">
+              המשך <span className="text-xs">←</span>
             </Button>
           </div>
-        </div>
+        )}
+
+        {/* Step 2: Phone number */}
+        {setupStep === 2 && (
+          <div className="space-y-3 border-t border-border pt-4">
+            <div className="bg-secondary/50 rounded-lg p-4">
+              <p className="text-sm text-muted-foreground">
+                הזינו את מספר הטלפון המחובר לחשבון הטלגרם שבו אתם מנויים לערוצי המקור. 
+                המספר ישמש לאימות חד-פעמי בלבד.
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">מספר טלפון (כולל קידומת)</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+972501234567" className="mt-1 bg-secondary border-border font-mono" dir="ltr" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setSetupStep(1)}>חזרה</Button>
+              <Button onClick={() => setSetupStep(3)} disabled={!phone} className="gap-2">
+                המשך <span className="text-xs">←</span>
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Save */}
+        {setupStep === 3 && (
+          <div className="space-y-3 border-t border-border pt-4">
+            <div className="bg-secondary/50 rounded-lg p-4 space-y-1">
+              <p className="text-sm font-medium text-foreground">סיכום הפרטים:</p>
+              <div className="text-sm text-muted-foreground space-y-0.5">
+                <p>API ID: <span className="font-mono text-foreground">{apiId}</span></p>
+                <p>API Hash: <span className="font-mono text-foreground">{apiHash.slice(0, 6)}...</span></p>
+                <p>טלפון: <span className="font-mono text-foreground">{phone}</span></p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setSetupStep(2)}>חזרה</Button>
+              <Button onClick={async () => { await handleSaveMtproto(); setSetupStep(4); }} disabled={mtprotoSaving} className="gap-2">
+                {mtprotoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                שמור והמשך
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: VPS Setup */}
+        {setupStep === 4 && (
+          <div className="space-y-4 border-t border-border pt-4">
+            <div className="bg-secondary/50 rounded-lg p-4 space-y-2">
+              <p className="text-sm font-medium text-foreground">🖥️ התקנה על שרת VPS</p>
+              <p className="text-sm text-muted-foreground">
+                הניטור צריך לרוץ על שרת חיצוני (VPS). תוכלו לשכור שרת זול ב-$4-5 לחודש 
+                (<a href="https://www.hetzner.com/cloud/" target="_blank" className="text-primary underline">Hetzner</a>, 
+                <a href="https://www.digitalocean.com/" target="_blank" className="text-primary underline mr-1"> DigitalOcean</a>).
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground">📋 פקודה אחת להתקנה:</p>
+              <p className="text-xs text-muted-foreground">העתיקו והדביקו בטרמינל של השרת:</p>
+              
+              <Button onClick={() => setShowSetupScript(!showSetupScript)} variant="outline" size="sm" className="gap-2 w-full justify-between">
+                <span className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4" />
+                  {showSetupScript ? "הסתר סקריפט" : "הצג סקריפט התקנה"}
+                </span>
+                {showSetupScript ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </Button>
+
+              {showSetupScript && (
+                <div className="relative">
+                  <pre className="text-xs bg-secondary p-3 rounded-lg font-mono overflow-x-auto max-h-64 overflow-y-auto whitespace-pre" dir="ltr">
+                    {generateSetupScript()}
+                  </pre>
+                  <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    className="absolute top-2 left-2 gap-1 h-7 text-xs"
+                    onClick={() => copyToClipboard(generateSetupScript())}
+                  >
+                    <Copy className="w-3 h-3" /> העתק
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-accent/10 border border-accent/20 rounded-lg p-4 space-y-2">
+              <p className="text-sm font-medium text-foreground">⚡ אחרי ההתקנה:</p>
+              <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>ערכו את קובץ <code className="bg-secondary px-1 rounded text-xs">~/tg-monitor/.env</code> - עדכנו <strong>INGEST_API_KEY</strong> ו-<strong>MONITOR_CHANNELS</strong></li>
+                <li>הריצו <code className="bg-secondary px-1 rounded text-xs">python3 monitor.py</code> - תקבלו קוד אימות בטלגרם, הזינו אותו</li>
+                <li>הפעילו כ-service: <code className="bg-secondary px-1 rounded text-xs">sudo systemctl enable --now tg-monitor</code></li>
+              </ol>
+            </div>
+
+            <div className="space-y-2 border-t border-border pt-3">
+              <Label className="text-sm text-muted-foreground">כתובת Ingest (לקובץ .env בשרת):</Label>
+              <div className="flex items-center gap-2">
+                <code className="block text-xs bg-secondary p-2 rounded font-mono break-all flex-1" dir="ltr">{ingestUrl}</code>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(ingestUrl)}>
+                  <Copy className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <Button variant="outline" onClick={() => setSetupStep(1)} size="sm">חזרה לשלב 1</Button>
+          </div>
+        )}
       </motion.div>
 
       {/* Bot & Webhook Settings */}
