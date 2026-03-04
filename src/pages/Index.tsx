@@ -90,6 +90,10 @@ const Index = () => {
         open={publishOpen}
         onOpenChange={setPublishOpen}
         channels={channels}
+        onScheduled={() => {
+          // Refresh scheduled posts
+          toast({ title: "📅 הפרסום תוזמן בהצלחה" });
+        }}
       />
     </div>
   );

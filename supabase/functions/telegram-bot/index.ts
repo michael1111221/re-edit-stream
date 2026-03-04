@@ -24,6 +24,16 @@ serve(async (req) => {
     const { action, ...params } = await req.json();
     const baseUrl = `${TELEGRAM_API}${BOT_TOKEN}`;
 
+    // Build reply_markup from inline_buttons if provided
+    let reply_markup: any = undefined;
+    if (params.inline_buttons && Array.isArray(params.inline_buttons) && params.inline_buttons.length > 0) {
+      reply_markup = {
+        inline_keyboard: params.inline_buttons.map((btn: { text: string; url: string }) => [
+          { text: btn.text, url: btn.url },
+        ]),
+      };
+    }
+
     let result;
 
     switch (action) {
@@ -34,39 +44,41 @@ serve(async (req) => {
       }
 
       case "sendVideo": {
-        // Send a video to a channel
-        // params: { chat_id, video (file_id or URL), caption?, parse_mode? }
+        const body: any = {
+          chat_id: params.chat_id,
+          video: params.video,
+          caption: params.caption || "",
+          parse_mode: params.parse_mode || "HTML",
+        };
+        if (reply_markup) body.reply_markup = reply_markup;
+
         const resp = await fetch(`${baseUrl}/sendVideo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: params.chat_id,
-            video: params.video,
-            caption: params.caption || "",
-            parse_mode: params.parse_mode || "HTML",
-          }),
+          body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
       }
 
       case "sendMessage": {
-        // params: { chat_id, text, parse_mode? }
+        const body: any = {
+          chat_id: params.chat_id,
+          text: params.text,
+          parse_mode: params.parse_mode || "HTML",
+        };
+        if (reply_markup) body.reply_markup = reply_markup;
+
         const resp = await fetch(`${baseUrl}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: params.chat_id,
-            text: params.text,
-            parse_mode: params.parse_mode || "HTML",
-          }),
+          body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
       }
 
       case "forwardMessage": {
-        // params: { chat_id, from_chat_id, message_id }
         const resp = await fetch(`${baseUrl}/forwardMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -81,25 +93,25 @@ serve(async (req) => {
       }
 
       case "copyMessage": {
-        // Copy without forward tag
-        // params: { chat_id, from_chat_id, message_id, caption? }
+        const body: any = {
+          chat_id: params.chat_id,
+          from_chat_id: params.from_chat_id,
+          message_id: params.message_id,
+          caption: params.caption,
+          parse_mode: "HTML",
+        };
+        if (reply_markup) body.reply_markup = reply_markup;
+
         const resp = await fetch(`${baseUrl}/copyMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: params.chat_id,
-            from_chat_id: params.from_chat_id,
-            message_id: params.message_id,
-            caption: params.caption,
-            parse_mode: "HTML",
-          }),
+          body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
       }
 
       case "getChat": {
-        // params: { chat_id }
         const resp = await fetch(`${baseUrl}/getChat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -115,6 +127,22 @@ serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chat_id: params.chat_id }),
         });
+        result = await resp.json();
+        break;
+      }
+
+      case "setWebhook": {
+        const resp = await fetch(`${baseUrl}/setWebhook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: params.url, allowed_updates: ["message", "callback_query"] }),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "deleteWebhook": {
+        const resp = await fetch(`${baseUrl}/deleteWebhook`);
         result = await resp.json();
         break;
       }
