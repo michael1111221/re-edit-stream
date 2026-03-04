@@ -1,41 +1,85 @@
-import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Channel, Video, ScheduledPost } from "@/types/dashboard";
-
-// Mock data for channels
-const mockChannels: Channel[] = [
-  { id: "1", name: "Tech News IL", type: "source", platform: "telegram", handle: "@technewsil", videoCount: 342, isOwned: false, language: "en", status: "active" },
-  { id: "2", name: "מדע וטכנולוגיה", type: "target", platform: "telegram", handle: "@scitech_he", videoCount: 187, isOwned: true, language: "he", status: "active" },
-  { id: "3", name: "Global Crypto", type: "source", platform: "telegram", handle: "@globalcrypto", videoCount: 891, isOwned: false, language: "en", status: "active" },
-  { id: "4", name: "קריפטו בעברית", type: "target", platform: "telegram", handle: "@crypto_he", videoCount: 256, isOwned: true, language: "he", status: "active" },
-  { id: "5", name: "AI Updates", type: "source", platform: "telegram", handle: "@aiupdates", videoCount: 564, isOwned: false, language: "en", status: "paused" },
-  { id: "6", name: "בינה מלאכותית", type: "target", platform: "telegram", handle: "@ai_hebrew", videoCount: 98, isOwned: true, language: "he", status: "active" },
-  { id: "7", name: "World News Today", type: "source", platform: "telegram", handle: "@worldnews24", videoCount: 2103, isOwned: false, language: "en", status: "active" },
-  { id: "8", name: "חדשות העולם", type: "target", platform: "telegram", handle: "@worldnews_he", videoCount: 445, isOwned: true, language: "he", status: "active" },
-];
-
-const mockVideos: Video[] = [
-  { id: "v1", title: "Breaking: New AI Model Released", sourceChannel: "Tech News IL", targetChannel: "מדע וטכנולוגיה", status: "completed", duration: "4:32", createdAt: "2026-03-04T10:30:00", translatedTitle: "פריצת דרך: מודל AI חדש שוחרר", linksRemoved: 2, linksAdded: 1 },
-  { id: "v2", title: "Bitcoin hits new ATH", sourceChannel: "Global Crypto", targetChannel: "קריפטו בעברית", status: "translating", duration: "6:15", createdAt: "2026-03-04T11:00:00", progress: 65 },
-  { id: "v3", title: "GPT-5 Full Review", sourceChannel: "AI Updates", targetChannel: "בינה מלאכותית", status: "downloading", duration: "12:44", createdAt: "2026-03-04T11:15:00", progress: 30 },
-  { id: "v4", title: "Global Markets Update", sourceChannel: "World News Today", targetChannel: "חדשות העולם", status: "queued", duration: "8:20", createdAt: "2026-03-04T11:30:00" },
-  { id: "v5", title: "Space X Latest Launch", sourceChannel: "Tech News IL", targetChannel: "מדע וטכנולוגיה", status: "editing", duration: "5:10", createdAt: "2026-03-04T09:00:00", progress: 80 },
-  { id: "v6", title: "Ethereum 2.0 Upgrade", sourceChannel: "Global Crypto", targetChannel: "קריפטו בעברית", status: "scheduled", duration: "7:45", createdAt: "2026-03-04T08:00:00", scheduledFor: "2026-03-04T18:00:00" },
-  { id: "v7", title: "Quantum Computing Breakthrough", sourceChannel: "AI Updates", targetChannel: "בינה מלאכותית", status: "failed", duration: "9:30", createdAt: "2026-03-04T07:00:00", error: "Translation API timeout" },
-  { id: "v8", title: "Middle East Peace Talks", sourceChannel: "World News Today", targetChannel: "חדשות העולם", status: "completed", duration: "11:20", createdAt: "2026-03-03T22:00:00", translatedTitle: "שיחות שלום במזרח התיכון", linksRemoved: 3, linksAdded: 2 },
-];
-
-const mockSchedule: ScheduledPost[] = [
-  { id: "s1", videoId: "v6", channel: "קריפטו בעברית", scheduledFor: "2026-03-04T18:00:00", title: "שדרוג Ethereum 2.0" },
-  { id: "s2", videoId: "v9", channel: "מדע וטכנולוגיה", scheduledFor: "2026-03-04T20:00:00", title: "מהפכת הרובוטיקה" },
-  { id: "s3", videoId: "v10", channel: "חדשות העולם", scheduledFor: "2026-03-05T08:00:00", title: "סיכום חדשות יומי" },
-  { id: "s4", videoId: "v11", channel: "בינה מלאכותית", scheduledFor: "2026-03-05T12:00:00", title: "סקירת כלי AI חדשים" },
-  { id: "s5", videoId: "v12", channel: "קריפטו בעברית", scheduledFor: "2026-03-05T16:00:00", title: "ניתוח שוק שבועי" },
-];
+import { TablesInsert } from "@/integrations/supabase/types";
 
 export function useDashboardData() {
-  const [channels] = useState<Channel[]>(mockChannels);
-  const [videos] = useState<Video[]>(mockVideos);
-  const [schedule] = useState<ScheduledPost[]>(mockSchedule);
+  const queryClient = useQueryClient();
+
+  const { data: channels = [] } = useQuery({
+    queryKey: ["channels"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("channels").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as Channel[];
+    },
+  });
+
+  const { data: videos = [] } = useQuery({
+    queryKey: ["videos"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("videos")
+        .select("*, source_channel:channels!videos_source_channel_id_fkey(*), target_channel:channels!videos_target_channel_id_fkey(*)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as Video[];
+    },
+  });
+
+  const { data: schedule = [] } = useQuery({
+    queryKey: ["scheduled_posts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("scheduled_posts")
+        .select("*, channel:channels(*), video:videos(title)")
+        .order("scheduled_for", { ascending: true });
+      if (error) throw error;
+      return data as ScheduledPost[];
+    },
+  });
+
+  const addChannel = useMutation({
+    mutationFn: async (channel: TablesInsert<"channels">) => {
+      const { data, error } = await supabase.from("channels").insert(channel).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
+  });
+
+  const updateChannel = useMutation({
+    mutationFn: async ({ id, ...updates }: { id: string } & Partial<TablesInsert<"channels">>) => {
+      const { error } = await supabase.from("channels").update(updates).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
+  });
+
+  const deleteChannel = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("channels").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
+  });
+
+  const addScheduledPost = useMutation({
+    mutationFn: async (post: TablesInsert<"scheduled_posts">) => {
+      const { data, error } = await supabase.from("scheduled_posts").insert(post).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scheduled_posts"] }),
+  });
+
+  const deleteScheduledPost = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("scheduled_posts").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scheduled_posts"] }),
+  });
 
   const stats = {
     totalChannels: channels.length,
@@ -45,8 +89,18 @@ export function useDashboardData() {
     completedToday: videos.filter(v => v.status === "completed").length,
     failedToday: videos.filter(v => v.status === "failed").length,
     scheduledPosts: schedule.length,
-    totalProcessed: 1247,
+    totalProcessed: videos.filter(v => v.status === "completed").length,
   };
 
-  return { channels, videos, schedule, stats };
+  return {
+    channels,
+    videos,
+    schedule,
+    stats,
+    addChannel,
+    updateChannel,
+    deleteChannel,
+    addScheduledPost,
+    deleteScheduledPost,
+  };
 }
