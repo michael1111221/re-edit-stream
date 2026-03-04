@@ -58,6 +58,16 @@ export function SidebarNav({ currentPage, onNavigate, onPublish }: SidebarNavPro
         })}
       </nav>
 
+      <div className="p-3">
+        <button
+          onClick={onPublish}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium gradient-primary text-primary-foreground transition-all hover:opacity-90"
+        >
+          <Send className="w-4 h-4" />
+          פרסם לטלגרם
+        </button>
+      </div>
+
       <div className="p-4 border-t border-border">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-success animate-pulse-glow" />
