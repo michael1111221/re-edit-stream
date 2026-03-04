@@ -14,7 +14,156 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      channels: {
+        Row: {
+          created_at: string
+          handle: string
+          id: string
+          is_owned: boolean
+          language: string
+          name: string
+          status: Database["public"]["Enums"]["channel_status"]
+          type: Database["public"]["Enums"]["channel_type"]
+          updated_at: string
+          video_count: number
+        }
+        Insert: {
+          created_at?: string
+          handle: string
+          id?: string
+          is_owned?: boolean
+          language?: string
+          name: string
+          status?: Database["public"]["Enums"]["channel_status"]
+          type: Database["public"]["Enums"]["channel_type"]
+          updated_at?: string
+          video_count?: number
+        }
+        Update: {
+          created_at?: string
+          handle?: string
+          id?: string
+          is_owned?: boolean
+          language?: string
+          name?: string
+          status?: Database["public"]["Enums"]["channel_status"]
+          type?: Database["public"]["Enums"]["channel_type"]
+          updated_at?: string
+          video_count?: number
+        }
+        Relationships: []
+      }
+      scheduled_posts: {
+        Row: {
+          channel_id: string | null
+          created_at: string
+          id: string
+          published: boolean
+          scheduled_for: string
+          title: string
+          video_id: string | null
+        }
+        Insert: {
+          channel_id?: string | null
+          created_at?: string
+          id?: string
+          published?: boolean
+          scheduled_for: string
+          title: string
+          video_id?: string | null
+        }
+        Update: {
+          channel_id?: string | null
+          created_at?: string
+          id?: string
+          published?: boolean
+          scheduled_for?: string
+          title?: string
+          video_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_posts_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_posts_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      videos: {
+        Row: {
+          created_at: string
+          duration: string | null
+          error: string | null
+          id: string
+          links_added: number | null
+          links_removed: number | null
+          progress: number | null
+          scheduled_for: string | null
+          source_channel_id: string | null
+          status: Database["public"]["Enums"]["video_status"]
+          target_channel_id: string | null
+          title: string
+          translated_title: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          duration?: string | null
+          error?: string | null
+          id?: string
+          links_added?: number | null
+          links_removed?: number | null
+          progress?: number | null
+          scheduled_for?: string | null
+          source_channel_id?: string | null
+          status?: Database["public"]["Enums"]["video_status"]
+          target_channel_id?: string | null
+          title: string
+          translated_title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          duration?: string | null
+          error?: string | null
+          id?: string
+          links_added?: number | null
+          links_removed?: number | null
+          progress?: number | null
+          scheduled_for?: string | null
+          source_channel_id?: string | null
+          status?: Database["public"]["Enums"]["video_status"]
+          target_channel_id?: string | null
+          title?: string
+          translated_title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "videos_source_channel_id_fkey"
+            columns: ["source_channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "videos_target_channel_id_fkey"
+            columns: ["target_channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +172,17 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      channel_status: "active" | "paused" | "error"
+      channel_type: "source" | "target"
+      video_status:
+        | "queued"
+        | "downloading"
+        | "translating"
+        | "editing"
+        | "scheduled"
+        | "publishing"
+        | "completed"
+        | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +309,19 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      channel_status: ["active", "paused", "error"],
+      channel_type: ["source", "target"],
+      video_status: [
+        "queued",
+        "downloading",
+        "translating",
+        "editing",
+        "scheduled",
+        "publishing",
+        "completed",
+        "failed",
+      ],
+    },
   },
 } as const
