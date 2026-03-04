@@ -14,6 +14,107 @@ export type Database = {
   }
   public: {
     Tables: {
+      banned_words: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          is_global: boolean
+          mapping_id: string | null
+          word: string
+        }
+        Insert: {
+          action?: string
+          created_at?: string
+          id?: string
+          is_global?: boolean
+          mapping_id?: string | null
+          word: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          is_global?: boolean
+          mapping_id?: string | null
+          word?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "banned_words_mapping_id_fkey"
+            columns: ["mapping_id"]
+            isOneToOne: false
+            referencedRelation: "channel_mappings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_mappings: {
+        Row: {
+          add_buttons: boolean
+          add_signature: boolean
+          auto_translate: boolean
+          created_at: string
+          default_buttons: Json | null
+          filter_banned_words: boolean
+          id: string
+          is_active: boolean
+          remove_links: boolean
+          signature_text: string | null
+          source_channel_id: string
+          target_channel_id: string
+          target_language: string
+          updated_at: string
+        }
+        Insert: {
+          add_buttons?: boolean
+          add_signature?: boolean
+          auto_translate?: boolean
+          created_at?: string
+          default_buttons?: Json | null
+          filter_banned_words?: boolean
+          id?: string
+          is_active?: boolean
+          remove_links?: boolean
+          signature_text?: string | null
+          source_channel_id: string
+          target_channel_id: string
+          target_language?: string
+          updated_at?: string
+        }
+        Update: {
+          add_buttons?: boolean
+          add_signature?: boolean
+          auto_translate?: boolean
+          created_at?: string
+          default_buttons?: Json | null
+          filter_banned_words?: boolean
+          id?: string
+          is_active?: boolean
+          remove_links?: boolean
+          signature_text?: string | null
+          source_channel_id?: string
+          target_channel_id?: string
+          target_language?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_mappings_source_channel_id_fkey"
+            columns: ["source_channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "channel_mappings_target_channel_id_fkey"
+            columns: ["target_channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channels: {
         Row: {
           created_at: string
