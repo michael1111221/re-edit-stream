@@ -4,7 +4,8 @@ import {
   GitBranch, 
   Calendar, 
   Settings, 
-  Zap
+  Zap,
+  Send
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 interface SidebarNavProps {
   currentPage: PageView;
   onNavigate: (page: PageView) => void;
+  onPublish?: () => void;
 }
 
 const navItems: { id: PageView; label: string; icon: React.ElementType }[] = [
@@ -22,7 +24,7 @@ const navItems: { id: PageView; label: string; icon: React.ElementType }[] = [
   { id: "settings", label: "הגדרות", icon: Settings },
 ];
 
-export function SidebarNav({ currentPage, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ currentPage, onNavigate, onPublish }: SidebarNavProps) {
   return (
     <aside className="fixed right-0 top-0 h-screen w-56 border-l border-border bg-sidebar flex flex-col z-50">
       <div className="p-5 border-b border-border">
@@ -55,6 +57,16 @@ export function SidebarNav({ currentPage, onNavigate }: SidebarNavProps) {
           );
         })}
       </nav>
+
+      <div className="p-3">
+        <button
+          onClick={onPublish}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium gradient-primary text-primary-foreground transition-all hover:opacity-90"
+        >
+          <Send className="w-4 h-4" />
+          פרסם לטלגרם
+        </button>
+      </div>
 
       <div className="p-4 border-t border-border">
         <div className="flex items-center gap-2">
