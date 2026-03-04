@@ -6,6 +6,7 @@ import { VideoPipeline } from "@/components/VideoPipeline";
 import { ScheduleView } from "@/components/ScheduleView";
 import { SettingsView } from "@/components/SettingsView";
 import { AddChannelDialog } from "@/components/AddChannelDialog";
+import { PublishDialog } from "@/components/PublishDialog";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { PageView, Channel } from "@/types/dashboard";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 const Index = () => {
   const [currentPage, setCurrentPage] = useState<PageView>("dashboard");
   const [addChannelOpen, setAddChannelOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const { channels, videos, schedule, stats, addChannel, updateChannel, deleteScheduledPost } = useDashboardData();
   const { toast } = useToast();
 
@@ -26,7 +28,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background" dir="rtl">
-      <SidebarNav currentPage={currentPage} onNavigate={setCurrentPage} />
+      <SidebarNav currentPage={currentPage} onNavigate={setCurrentPage} onPublish={() => setPublishOpen(true)} />
 
       <main className="mr-56 p-6">
         <AnimatePresence mode="wait">
@@ -82,6 +84,12 @@ const Index = () => {
             },
           });
         }}
+      />
+
+      <PublishDialog
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        channels={channels}
       />
     </div>
   );
