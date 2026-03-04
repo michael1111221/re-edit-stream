@@ -17,7 +17,14 @@ import {
   Eye,
   EyeOff,
   Copy,
-  Server
+  Server,
+  ExternalLink,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  Globe,
+  Key,
+  Smartphone
 } from "lucide-react";
 import { setWebhook, deleteWebhook, getBotInfo } from "@/lib/telegram";
 import { useToast } from "@/hooks/use-toast";
