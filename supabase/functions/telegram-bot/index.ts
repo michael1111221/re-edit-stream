@@ -135,7 +135,7 @@ serve(async (req) => {
         const resp = await fetch(`${baseUrl}/setWebhook`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: params.url, allowed_updates: ["message", "callback_query"] }),
+          body: JSON.stringify({ url: params.url, allowed_updates: ["message", "channel_post", "callback_query"] }),
         });
         result = await resp.json();
         break;
