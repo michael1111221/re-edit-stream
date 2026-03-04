@@ -106,7 +106,7 @@ export function SettingsView() {
             </Button>
             {botInfo && (
               <span className="text-sm text-muted-foreground">
-                <CheckCircle2 className="w-4 h-4 text-green-500 inline ml-1" />
+                <CheckCircle2 className="w-4 h-4 text-accent inline ml-1" />
                 @{botInfo.username}
               </span>
             )}
