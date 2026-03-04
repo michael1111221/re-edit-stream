@@ -2,26 +2,23 @@ import { motion } from "framer-motion";
 import { ScheduledPost } from "@/types/dashboard";
 import { Button } from "@/components/ui/button";
 import { 
-  Calendar, 
-  Clock, 
   Play, 
   Trash2, 
   Edit3, 
   Plus,
-  ChevronLeft,
-  ChevronRight
 } from "lucide-react";
 import { format } from "date-fns";
 import { he } from "date-fns/locale";
 
 interface ScheduleViewProps {
   schedule: ScheduledPost[];
+  onDelete?: (id: string) => void;
 }
 
-export function ScheduleView({ schedule }: ScheduleViewProps) {
+export function ScheduleView({ schedule, onDelete }: ScheduleViewProps) {
   const today = new Date();
   const grouped = schedule.reduce<Record<string, ScheduledPost[]>>((acc, post) => {
-    const day = format(new Date(post.scheduledFor), "yyyy-MM-dd");
+    const day = format(new Date(post.scheduled_for), "yyyy-MM-dd");
     if (!acc[day]) acc[day] = [];
     acc[day].push(post);
     return acc;
@@ -37,7 +34,10 @@ export function ScheduleView({ schedule }: ScheduleViewProps) {
         </Button>
       </div>
 
-      {/* Timeline */}
+      {Object.keys(grouped).length === 0 && (
+        <div className="text-center py-8 text-muted-foreground text-sm">אין פרסומים מתוזמנים</div>
+      )}
+
       <div className="space-y-6">
         {Object.entries(grouped).map(([day, posts], dayIndex) => {
           const date = new Date(day);
@@ -69,20 +69,23 @@ export function ScheduleView({ schedule }: ScheduleViewProps) {
                   >
                     <div className="w-14 text-center shrink-0">
                       <div className="text-sm font-mono font-medium text-primary">
-                        {format(new Date(post.scheduledFor), "HH:mm")}
+                        {format(new Date(post.scheduled_for), "HH:mm")}
                       </div>
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-foreground truncate">{post.title}</div>
-                      <div className="text-xs text-muted-foreground">{post.channel}</div>
+                      <div className="text-xs text-muted-foreground">{post.channel?.name || "—"}</div>
                     </div>
 
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground hover:text-destructive transition-colors">
+                      <button
+                        onClick={() => onDelete?.(post.id)}
+                        className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground hover:text-destructive transition-colors"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                       <button className="p-1.5 rounded hover:bg-primary/15 text-muted-foreground hover:text-primary transition-colors">
