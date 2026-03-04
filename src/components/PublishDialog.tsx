@@ -27,10 +27,9 @@ import { Channel } from "@/types/dashboard";
 import { sendVideoToChannel, copyMessageToChannel, InlineButton } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Loader2, Video, MessageSquare, Plus, Trash2, CalendarIcon, Clock, Link2 } from "lucide-react";
+import { Send, Loader2, Video, MessageSquare, Plus, Trash2, CalendarIcon, Clock, Link2, Languages } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { he } from "date-fns/locale";
 
 interface PublishDialogProps {
   open: boolean;
@@ -50,6 +49,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [fromChatId, setFromChatId] = useState("");
   const [messageId, setMessageId] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
 
   // Scheduling
   const [isScheduled, setIsScheduled] = useState(false);
@@ -73,6 +73,30 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     const updated = [...inlineButtons];
     updated[index] = { ...updated[index], [field]: value };
     setInlineButtons(updated);
+  };
+
+  const handleTranslate = async () => {
+    if (!caption.trim()) {
+      toast({ title: "אין טקסט לתרגום", variant: "destructive" });
+      return;
+    }
+
+    setIsTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("translate-caption", {
+        body: { text: caption, target_language: "Hebrew" },
+      });
+
+      if (error) throw new Error(error.message);
+      if (data?.translated) {
+        setCaption(data.translated);
+        toast({ title: "✅ תורגם בהצלחה!" });
+      }
+    } catch (err: any) {
+      toast({ title: "שגיאת תרגום", description: err.message, variant: "destructive" });
+    } finally {
+      setIsTranslating(false);
+    }
   };
 
   const handlePublish = async (e: React.FormEvent) => {
@@ -101,7 +125,6 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         return;
       }
 
-      // Find the channel DB record
       const targetChannel = channels.find(c => c.handle === targetChannelId);
 
       setIsSending(true);
@@ -286,9 +309,22 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             </>
           )}
 
-          {/* Caption */}
+          {/* Caption with Translate */}
           <div>
-            <Label className="text-sm text-muted-foreground">כיתוב (אופציונלי)</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm text-muted-foreground">כיתוב (אופציונלי)</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleTranslate}
+                disabled={isTranslating || !caption.trim()}
+                className="h-7 text-xs gap-1 text-accent hover:text-accent"
+              >
+                {isTranslating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
+                תרגם לעברית
+              </Button>
+            </div>
             <Textarea
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
