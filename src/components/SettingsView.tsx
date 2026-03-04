@@ -37,6 +37,8 @@ export function SettingsView() {
   const [showApiHash, setShowApiHash] = useState(false);
   const [mtprotoSaving, setMtprotoSaving] = useState(false);
   const [mtprotoLoaded, setMtprotoLoaded] = useState(false);
+  const [setupStep, setSetupStep] = useState(1);
+  const [showSetupScript, setShowSetupScript] = useState(false);
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`;
   const ingestUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ingest-post`;
