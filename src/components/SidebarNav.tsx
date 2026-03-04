@@ -4,7 +4,8 @@ import {
   GitBranch, 
   Calendar, 
   Settings, 
-  Zap
+  Zap,
+  Send
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 interface SidebarNavProps {
   currentPage: PageView;
   onNavigate: (page: PageView) => void;
+  onPublish?: () => void;
 }
 
 const navItems: { id: PageView; label: string; icon: React.ElementType }[] = [
@@ -22,7 +24,7 @@ const navItems: { id: PageView; label: string; icon: React.ElementType }[] = [
   { id: "settings", label: "הגדרות", icon: Settings },
 ];
 
-export function SidebarNav({ currentPage, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ currentPage, onNavigate, onPublish }: SidebarNavProps) {
   return (
     <aside className="fixed right-0 top-0 h-screen w-56 border-l border-border bg-sidebar flex flex-col z-50">
       <div className="p-5 border-b border-border">
