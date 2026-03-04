@@ -10,7 +10,6 @@ import {
   Upload, 
   CheckCircle2, 
   XCircle,
-  Loader2 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +18,7 @@ interface VideoPipelineProps {
   compact?: boolean;
 }
 
-const statusConfig: Record<Video["status"], { label: string; icon: React.ElementType; color: string }> = {
+const statusConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   queued: { label: "בתור", icon: Clock, color: "bg-muted text-muted-foreground" },
   downloading: { label: "מוריד", icon: Download, color: "bg-info/15 text-info" },
   translating: { label: "מתרגם", icon: Languages, color: "bg-accent/15 text-accent" },
@@ -35,10 +34,15 @@ export function VideoPipeline({ videos, compact = false }: VideoPipelineProps) {
 
   return (
     <div className="space-y-2">
+      {displayVideos.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground text-sm">אין סרטונים בתור</div>
+      )}
       {displayVideos.map((video, i) => {
         const config = statusConfig[video.status];
         const Icon = config.icon;
         const isActive = ["downloading", "translating", "editing", "publishing"].includes(video.status);
+        const sourceName = video.source_channel?.name || "לא ידוע";
+        const targetName = video.target_channel?.name || "לא ידוע";
 
         return (
           <motion.div
@@ -55,12 +59,12 @@ export function VideoPipeline({ videos, compact = false }: VideoPipelineProps) {
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-foreground truncate">{video.title}</div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {video.sourceChannel} → {video.targetChannel} · {video.duration}
+                {sourceName} → {targetName} · {video.duration || "—"}
               </div>
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
-              {video.progress !== undefined && isActive && (
+              {video.progress != null && video.progress > 0 && isActive && (
                 <div className="w-20">
                   <Progress value={video.progress} className="h-1.5" />
                 </div>

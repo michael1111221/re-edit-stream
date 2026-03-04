@@ -5,13 +5,24 @@ import { ChannelList } from "@/components/ChannelList";
 import { VideoPipeline } from "@/components/VideoPipeline";
 import { ScheduleView } from "@/components/ScheduleView";
 import { SettingsView } from "@/components/SettingsView";
+import { AddChannelDialog } from "@/components/AddChannelDialog";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
-import { PageView } from "@/types/dashboard";
+import { PageView, Channel } from "@/types/dashboard";
 import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
   const [currentPage, setCurrentPage] = useState<PageView>("dashboard");
-  const { channels, videos, schedule, stats } = useDashboardData();
+  const [addChannelOpen, setAddChannelOpen] = useState(false);
+  const { channels, videos, schedule, stats, addChannel, updateChannel, deleteScheduledPost } = useDashboardData();
+  const { toast } = useToast();
+
+  const handleToggleStatus = (channel: Channel) => {
+    updateChannel.mutate(
+      { id: channel.id, status: channel.status === "active" ? "paused" : "active" },
+      { onSuccess: () => toast({ title: `ערוץ ${channel.status === "active" ? "מושהה" : "הופעל"}` }) }
+    );
+  };
 
   return (
     <div className="min-h-screen bg-background" dir="rtl">
@@ -30,7 +41,11 @@ const Index = () => {
               <DashboardView stats={stats} videos={videos} onNavigate={setCurrentPage} />
             )}
             {currentPage === "channels" && (
-              <ChannelList channels={channels} />
+              <ChannelList
+                channels={channels}
+                onAddChannel={() => setAddChannelOpen(true)}
+                onToggleStatus={handleToggleStatus}
+              />
             )}
             {currentPage === "pipeline" && (
               <div className="space-y-6">
@@ -42,7 +57,12 @@ const Index = () => {
               </div>
             )}
             {currentPage === "schedule" && (
-              <ScheduleView schedule={schedule} />
+              <ScheduleView
+                schedule={schedule}
+                onDelete={(id) => deleteScheduledPost.mutate(id, {
+                  onSuccess: () => toast({ title: "פרסום מתוזמן נמחק" }),
+                })}
+              />
             )}
             {currentPage === "settings" && (
               <SettingsView />
@@ -50,6 +70,19 @@ const Index = () => {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      <AddChannelDialog
+        open={addChannelOpen}
+        onOpenChange={setAddChannelOpen}
+        onAdd={(data) => {
+          addChannel.mutate(data, {
+            onSuccess: () => {
+              setAddChannelOpen(false);
+              toast({ title: "ערוץ נוסף בהצלחה" });
+            },
+          });
+        }}
+      />
     </div>
   );
 };
