@@ -272,7 +272,7 @@ echo ""
     { num: 1, icon: Globe, title: "קבל API ID ו-Hash", done: !!apiId && !!apiHash },
     { num: 2, icon: Smartphone, title: "הזן מספר טלפון", done: !!phone },
     { num: 3, icon: Key, title: "שמור הגדרות", done: mtprotoLoaded && !!apiId },
-    { num: 4, icon: Server, title: "הפעל ניטור", done: false },
+    { num: 4, icon: Monitor, title: "הפעל ניטור", done: false },
   ];
 
   return (
