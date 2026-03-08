@@ -17,11 +17,6 @@ import {
   Eye,
   EyeOff,
   Copy,
-  Server,
-  ExternalLink,
-  Terminal,
-  ChevronDown,
-  ChevronUp,
   Globe,
   Key,
   Smartphone,
@@ -46,8 +41,7 @@ export function SettingsView() {
   const [mtprotoSaving, setMtprotoSaving] = useState(false);
   const [mtprotoLoaded, setMtprotoLoaded] = useState(false);
   const [setupStep, setSetupStep] = useState(1);
-  const [showSetupScript, setShowSetupScript] = useState(false);
-  const [deployMode, setDeployMode] = useState<"local" | "vps">("local");
+  // deployMode removed — local only
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`;
   const ingestUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ingest-post`;
@@ -143,126 +137,6 @@ export function SettingsView() {
     }
   };
 
-  const generateSetupScript = () => {
-    return `#!/bin/bash
-# === Telegram Channel Monitor - Quick Setup ===
-# Run this on your VPS (Ubuntu/Debian):
-# curl -sL <paste_url> | bash
-# OR copy-paste this entire script
-
-set -e
-
-echo "🔧 Installing dependencies..."
-sudo apt-get update -qq && sudo apt-get install -y python3 python3-pip -qq
-
-echo "📁 Creating project folder..."
-mkdir -p ~/tg-monitor && cd ~/tg-monitor
-
-echo "📦 Installing Python packages..."
-pip3 install telethon aiohttp
-
-echo "📝 Creating monitor script..."
-cat > monitor.py << 'PYEOF'
-import os, asyncio, logging, base64, json
-from telethon import TelegramClient, events
-import aiohttp
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("monitor")
-
-API_ID = int(os.environ["TELEGRAM_API_ID"])
-API_HASH = os.environ["TELEGRAM_API_HASH"]
-PHONE = os.environ["TELEGRAM_PHONE"]
-INGEST_URL = os.environ["INGEST_URL"]
-INGEST_KEY = os.environ["INGEST_API_KEY"]
-CHANNELS = [c.strip() for c in os.environ.get("MONITOR_CHANNELS", "").split(",") if c.strip()]
-
-client = TelegramClient("session", API_ID, API_HASH)
-
-async def send_to_ingest(payload):
-    async with aiohttp.ClientSession() as s:
-        async with s.post(INGEST_URL, json=payload, headers={"Authorization": f"Bearer {INGEST_KEY}", "Content-Type": "application/json"}) as r:
-            logger.info(f"Ingest response: {r.status}")
-
-@client.on(events.NewMessage(chats=CHANNELS if CHANNELS else None))
-async def handler(event):
-    msg = event.message
-    chat = await event.get_chat()
-    handle = getattr(chat, "username", None) or str(chat.id)
-    media_type, media_b64, media_name, media_mime = None, None, None, None
-
-    if msg.video: media_type = "video"
-    elif msg.photo: media_type = "photo"
-    elif msg.document: media_type = "document"
-    elif msg.gif: media_type = "animation"
-
-    if media_type and msg.media:
-        data = await client.download_media(msg, bytes)
-        if data and len(data) < 10*1024*1024:
-            media_b64 = base64.b64encode(data).decode()
-            media_name = getattr(msg.media, "file_name", f"media.bin") if hasattr(msg.media, "file_name") else f"media.bin"
-            media_mime = msg.media.document.mime_type if hasattr(msg.media, "document") and msg.media.document else "application/octet-stream"
-
-    await send_to_ingest({
-        "source_channel_handle": f"@{handle}",
-        "message_id": msg.id,
-        "text": msg.text or "",
-        "media_type": media_type,
-        "media_base64": media_b64,
-        "media_filename": media_name,
-        "media_mime": media_mime
-    })
-
-async def main():
-    await client.start(phone=PHONE)
-    logger.info(f"Monitoring {len(CHANNELS) if CHANNELS else 'ALL'} channels...")
-    await client.run_until_disconnected()
-
-asyncio.run(main())
-PYEOF
-
-echo "📝 Creating .env file..."
-cat > .env << ENVEOF
-TELEGRAM_API_ID=${apiId}
-TELEGRAM_API_HASH=${apiHash}
-TELEGRAM_PHONE=${phone}
-INGEST_URL=${ingestUrl}
-INGEST_API_KEY=YOUR_INGEST_KEY_HERE
-MONITOR_CHANNELS=@channel1,@channel2
-ENVEOF
-
-echo "📝 Creating systemd service..."
-sudo tee /etc/systemd/system/tg-monitor.service > /dev/null << SVCEOF
-[Unit]
-Description=Telegram Channel Monitor
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=$HOME/tg-monitor
-EnvironmentFile=$HOME/tg-monitor/.env
-ExecStart=/usr/bin/python3 monitor.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
-echo ""
-echo "✅ Installation complete!"
-echo ""
-echo "📋 Next steps:"
-echo "  1. Edit ~/tg-monitor/.env and set INGEST_API_KEY and MONITOR_CHANNELS"
-echo "  2. Run: cd ~/tg-monitor && python3 monitor.py"
-echo "     (First run will ask for Telegram verification code)"
-echo "  3. After verification, enable the service:"
-echo "     sudo systemctl enable --now tg-monitor"
-echo ""
-`;
-  };
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: "הועתק!" });
@@ -272,7 +146,7 @@ echo ""
     { num: 1, icon: Globe, title: "קבל API ID ו-Hash", done: !!apiId && !!apiHash },
     { num: 2, icon: Smartphone, title: "הזן מספר טלפון", done: !!phone },
     { num: 3, icon: Key, title: "שמור הגדרות", done: mtprotoLoaded && !!apiId },
-    { num: 4, icon: Server, title: "הפעל ניטור", done: false },
+    { num: 4, icon: Monitor, title: "הפעל ניטור", done: false },
   ];
 
   return (
@@ -313,7 +187,7 @@ echo ""
             <div className="bg-secondary/50 rounded-lg p-4 space-y-2">
               <p className="text-sm text-foreground font-medium">📋 איך משיגים API ID ו-Hash?</p>
               <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
-                <li>היכנסו ל-<a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline">my.telegram.org</a> <ExternalLink className="w-3 h-3 inline" /></li>
+                <li>היכנסו ל-<a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline">my.telegram.org ↗</a></li>
                 <li>התחברו עם מספר הטלפון שלכם</li>
                 <li>לחצו על "API development tools"</li>
                 <li>מלאו שם אפליקציה (כל שם) ולחצו Create</li>
@@ -382,197 +256,85 @@ echo ""
           </div>
         )}
 
-        {/* Step 4: Deploy */}
+        {/* Step 4: Run Locally */}
         {setupStep === 4 && (
           <div className="space-y-4 border-t border-border pt-4">
-            {/* Deploy mode toggle */}
-            <div className="flex gap-2">
-              <Button 
-                variant={deployMode === "vps" ? "default" : "outline"} 
-                size="sm" 
-                className="gap-2 flex-1"
-                onClick={() => setDeployMode("vps")}
-              >
-                <Server className="w-4 h-4" />
-                🖥️ שרת VPS
-              </Button>
-              <Button 
-                variant={deployMode === "local" ? "default" : "outline"} 
-                size="sm" 
-                className="gap-2 flex-1"
-                onClick={() => setDeployMode("local")}
-              >
-                <Monitor className="w-4 h-4" />
-                💻 מחשב מקומי
-              </Button>
+            <div className="bg-accent/10 border border-accent/20 rounded-lg p-4">
+              <p className="text-sm font-medium text-foreground mb-1">💻 הרצה מהמחשב שלך</p>
+              <p className="text-xs text-muted-foreground">דורש Python 3.10+ בלבד. הסקריפט רץ ברקע ומעביר פוסטים חדשים אוטומטית.</p>
             </div>
 
-            {deployMode === "vps" && (
-              <div className="space-y-4">
-                <div className="bg-accent/10 border border-accent/20 rounded-lg p-4">
-                  <p className="text-sm font-medium text-foreground mb-1">🎯 3 פקודות בלבד!</p>
-                  <p className="text-xs text-muted-foreground">התחברו לשרת VPS ב-SSH והריצו את הפקודות הבאות בסדר.</p>
-                </div>
-
-                {/* Step A: One-liner install */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
-                    <p className="text-sm font-medium text-foreground">העתיקו והריצו (מתקין הכל אוטומטית)</p>
-                  </div>
-                  <div className="relative">
-                    <pre className="text-xs bg-secondary p-3 rounded-lg font-mono overflow-x-auto whitespace-pre-wrap break-all" dir="ltr">{`sudo apt-get update -qq && sudo apt-get install -y python3 python3-pip -qq && mkdir -p ~/tg-monitor && cd ~/tg-monitor && pip3 install telethon aiohttp && cat > .env << 'EOF'
-TELEGRAM_API_ID=${apiId}
-TELEGRAM_API_HASH=${apiHash}
-TELEGRAM_PHONE=${phone}
-INGEST_URL=${ingestUrl}
-INGEST_API_KEY=CHANGE_ME
-MONITOR_CHANNELS=@channel1,@channel2
-EOF
-echo "✅ Done! Now edit .env and run step 2"`}</pre>
-                    <Button 
-                      variant="secondary" 
-                      size="sm" 
-                      className="absolute top-2 left-2 gap-1 h-7 text-xs"
-                      onClick={() => copyToClipboard(`sudo apt-get update -qq && sudo apt-get install -y python3 python3-pip -qq && mkdir -p ~/tg-monitor && cd ~/tg-monitor && pip3 install telethon aiohttp && cat > .env << 'EOF'\nTELEGRAM_API_ID=${apiId}\nTELEGRAM_API_HASH=${apiHash}\nTELEGRAM_PHONE=${phone}\nINGEST_URL=${ingestUrl}\nINGEST_API_KEY=CHANGE_ME\nMONITOR_CHANNELS=@channel1,@channel2\nEOF\necho "✅ Done! Now edit .env and run step 2"`)}
-                    >
-                      <Copy className="w-3 h-3" /> העתק
-                    </Button>
-                  </div>
-                  <div className="bg-secondary/50 rounded-lg p-3 space-y-1">
-                    <p className="text-xs font-medium text-foreground">⚠️ אחרי שהפקודה רצה, ערכו את קובץ ה-.env:</p>
-                    <div className="relative">
-                      <pre className="text-xs bg-secondary p-2 rounded font-mono" dir="ltr">nano ~/tg-monitor/.env</pre>
-                      <Button variant="ghost" size="sm" className="absolute top-0.5 left-0.5 h-6 w-6 p-0" onClick={() => copyToClipboard("nano ~/tg-monitor/.env")}>
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
-                    <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
-                      <li>שנו <code className="bg-secondary px-1 rounded">CHANGE_ME</code> למפתח INGEST שלכם</li>
-                      <li>שנו <code className="bg-secondary px-1 rounded">@channel1,@channel2</code> לערוצי המקור</li>
-                      <li>שמרו: <kbd className="bg-secondary px-1 rounded text-[10px]">Ctrl+X</kbd> → <kbd className="bg-secondary px-1 rounded text-[10px]">Y</kbd> → <kbd className="bg-secondary px-1 rounded text-[10px]">Enter</kbd></li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Step B: Download monitor.py + first run */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
-                    <p className="text-sm font-medium text-foreground">צרו את הסקריפט והריצו פעם ראשונה</p>
-                  </div>
-                  <div className="relative">
-                    <Button 
-                      onClick={() => setShowSetupScript(!showSetupScript)} 
-                      variant="outline" 
-                      size="sm" 
-                      className="gap-2 w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Terminal className="w-4 h-4" />
-                        {showSetupScript ? "הסתר קוד monitor.py" : "הצג קוד monitor.py להעתקה"}
-                      </span>
-                      {showSetupScript ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                  {showSetupScript && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">צרו את הקובץ:</p>
-                      <div className="relative">
-                        <pre className="text-xs bg-secondary p-2 rounded font-mono" dir="ltr">nano ~/tg-monitor/monitor.py</pre>
-                        <Button variant="ghost" size="sm" className="absolute top-0.5 left-0.5 h-6 w-6 p-0" onClick={() => copyToClipboard("nano ~/tg-monitor/monitor.py")}>
-                          <Copy className="w-3 h-3" />
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">הדביקו את הקוד הבא ושמרו:</p>
-                      <div className="relative">
-                        <pre className="text-[10px] bg-secondary p-3 rounded-lg font-mono overflow-x-auto max-h-48 overflow-y-auto whitespace-pre" dir="ltr">
-                          {generateSetupScript()}
-                        </pre>
-                        <Button 
-                          variant="secondary" 
-                          size="sm" 
-                          className="absolute top-2 left-2 gap-1 h-7 text-xs"
-                          onClick={() => copyToClipboard(generateSetupScript())}
-                        >
-                          <Copy className="w-3 h-3" /> העתק קוד
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">🔐 בהרצה הראשונה תקבלו קוד אימות בטלגרם - הזינו אותו:</p>
-                  <div className="relative">
-                    <pre className="text-xs bg-secondary p-2 rounded font-mono" dir="ltr">cd ~/tg-monitor && python3 monitor.py</pre>
-                    <Button variant="ghost" size="sm" className="absolute top-0.5 left-0.5 h-6 w-6 p-0" onClick={() => copyToClipboard("cd ~/tg-monitor && python3 monitor.py")}>
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Step C: Enable service */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</span>
-                    <p className="text-sm font-medium text-foreground">הפעילו כשירות (רץ תמיד ברקע)</p>
-                  </div>
-                  <div className="relative">
-                    <pre className="text-xs bg-secondary p-3 rounded-lg font-mono whitespace-pre-wrap" dir="ltr">{`sudo systemctl enable --now tg-monitor`}</pre>
-                    <Button variant="ghost" size="sm" className="absolute top-1 left-1 h-6 w-6 p-0" onClick={() => copyToClipboard("sudo systemctl enable --now tg-monitor")}>
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">📋 לצפייה בלוגים: <code className="bg-secondary px-1 rounded cursor-pointer hover:text-foreground" onClick={() => copyToClipboard("sudo journalctl -u tg-monitor -f")}>journalctl -u tg-monitor -f</code></p>
-                </div>
+            {/* Step 1: Install */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                <p className="text-sm font-medium text-foreground">התקנת ספריות</p>
               </div>
-            )}
+              <div className="relative">
+                <pre className="text-xs bg-secondary p-3 rounded-lg font-mono" dir="ltr">pip install telethon aiohttp</pre>
+                <Button variant="ghost" size="sm" className="absolute top-1 left-1 h-6 w-6 p-0" onClick={() => copyToClipboard("pip install telethon aiohttp")}>
+                  <Copy className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
 
-            {deployMode === "local" && (
-              <div className="space-y-3">
-                <div className="bg-secondary/50 rounded-lg p-4 space-y-2">
-                  <p className="text-sm font-medium text-foreground">💻 בדיקה מהמחשב</p>
-                  <p className="text-sm text-muted-foreground">דורש Python 3.10+ בלבד. מתאים לבדיקה לפני פריסה על VPS.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">1. התקנה</p>
-                  <div className="relative">
-                    <pre className="text-xs bg-secondary p-3 rounded-lg font-mono" dir="ltr">pip install telethon aiohttp</pre>
-                    <Button variant="ghost" size="sm" className="absolute top-1 left-1 h-6 w-6 p-0" onClick={() => copyToClipboard("pip install telethon aiohttp")}>
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">2. צרו קובץ <code className="bg-secondary px-1 rounded text-xs">.env</code></p>
-                  <div className="relative">
-                    <pre className="text-xs bg-secondary p-3 rounded-lg font-mono whitespace-pre" dir="ltr">{`TELEGRAM_API_ID=${apiId}
+            {/* Step 2: Create .env */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
+                <p className="text-sm font-medium text-foreground">צרו קובץ <code className="bg-secondary px-1 rounded text-xs">.env</code> באותה תיקייה</p>
+              </div>
+              <div className="relative">
+                <pre className="text-xs bg-secondary p-3 rounded-lg font-mono whitespace-pre" dir="ltr">{`TELEGRAM_API_ID=${apiId}
 TELEGRAM_API_HASH=${apiHash}
 TELEGRAM_PHONE=${phone}
 INGEST_URL=${ingestUrl}
 INGEST_API_KEY=YOUR_KEY_HERE
 MONITOR_CHANNELS=@channel1,@channel2`}</pre>
-                    <Button variant="secondary" size="sm" className="absolute top-1.5 left-1.5 gap-1 h-6 text-xs" onClick={() => copyToClipboard(`TELEGRAM_API_ID=${apiId}\nTELEGRAM_API_HASH=${apiHash}\nTELEGRAM_PHONE=${phone}\nINGEST_URL=${ingestUrl}\nINGEST_API_KEY=YOUR_KEY_HERE\nMONITOR_CHANNELS=@channel1,@channel2`)}>
-                      <Copy className="w-3 h-3" /> העתק
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">3. הריצו</p>
-                  <div className="relative">
-                    <pre className="text-xs bg-secondary p-3 rounded-lg font-mono" dir="ltr">python monitor.py</pre>
-                    <Button variant="ghost" size="sm" className="absolute top-1 left-1 h-6 w-6 p-0" onClick={() => copyToClipboard("python monitor.py")}>
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="bg-accent/10 border border-accent/20 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground">💡 הסקריפט <code className="bg-secondary px-1 rounded">monitor.py</code> נמצא בתיקייה <code className="bg-secondary px-1 rounded">vps-monitor/</code> בפרויקט.</p>
-                </div>
+                <Button variant="secondary" size="sm" className="absolute top-1.5 left-1.5 gap-1 h-6 text-xs" onClick={() => copyToClipboard(`TELEGRAM_API_ID=${apiId}\nTELEGRAM_API_HASH=${apiHash}\nTELEGRAM_PHONE=${phone}\nINGEST_URL=${ingestUrl}\nINGEST_API_KEY=YOUR_KEY_HERE\nMONITOR_CHANNELS=@channel1,@channel2`)}>
+                  <Copy className="w-3 h-3" /> העתק
+                </Button>
               </div>
-            )}
+              <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside mr-2">
+                <li>שנו <code className="bg-secondary px-1 rounded">YOUR_KEY_HERE</code> למפתח INGEST שלכם</li>
+                <li>שנו <code className="bg-secondary px-1 rounded">@channel1,@channel2</code> לערוצי המקור שלכם</li>
+              </ul>
+            </div>
+
+            {/* Step 3: Download monitor.py */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</span>
+                <p className="text-sm font-medium text-foreground">הורידו את <code className="bg-secondary px-1 rounded text-xs">monitor.py</code></p>
+              </div>
+              <div className="bg-secondary/50 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">הקובץ נמצא בתיקייה <code className="bg-secondary px-1 rounded">vps-monitor/monitor.py</code> בפרויקט. העתיקו אותו לתיקייה שבה יצרתם את ה-.env.</p>
+              </div>
+            </div>
+
+            {/* Step 4: Run */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</span>
+                <p className="text-sm font-medium text-foreground">הריצו את הסקריפט</p>
+              </div>
+              <div className="relative">
+                <pre className="text-xs bg-secondary p-3 rounded-lg font-mono" dir="ltr">python monitor.py</pre>
+                <Button variant="ghost" size="sm" className="absolute top-1 left-1 h-6 w-6 p-0" onClick={() => copyToClipboard("python monitor.py")}>
+                  <Copy className="w-3 h-3" />
+                </Button>
+              </div>
+              <div className="bg-secondary/50 rounded-lg p-3 space-y-1">
+                <p className="text-xs text-foreground font-medium">🔐 בהרצה הראשונה:</p>
+                <p className="text-xs text-muted-foreground">תקבלו קוד אימות בטלגרם — הזינו אותו בטרמינל. זה קורה פעם אחת בלבד.</p>
+              </div>
+            </div>
+
+            {/* Keep running tip */}
+            <div className="bg-accent/10 border border-accent/20 rounded-lg p-3 space-y-1">
+              <p className="text-xs font-medium text-foreground">💡 טיפ: שמירה על הסקריפט פעיל</p>
+              <p className="text-xs text-muted-foreground">הסקריפט צריך לרוץ כל הזמן. ב-Windows: השאירו את חלון ה-CMD/PowerShell פתוח. ב-Mac/Linux: השתמשו ב-<code className="bg-secondary px-1 rounded cursor-pointer hover:text-foreground" onClick={() => copyToClipboard("nohup python monitor.py &")}>nohup python monitor.py &</code></p>
+            </div>
 
             <Button variant="outline" onClick={() => setSetupStep(1)} size="sm">חזרה לשלב 1</Button>
           </div>
