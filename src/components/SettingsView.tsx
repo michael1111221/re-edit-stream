@@ -47,7 +47,7 @@ export function SettingsView() {
   const [mtprotoLoaded, setMtprotoLoaded] = useState(false);
   const [setupStep, setSetupStep] = useState(1);
   const [showSetupScript, setShowSetupScript] = useState(false);
-  const [deployMode, setDeployMode] = useState<"local" | "vps">("local");
+  // deployMode removed — local only
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`;
   const ingestUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ingest-post`;
