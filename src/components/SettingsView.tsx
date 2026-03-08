@@ -187,7 +187,7 @@ export function SettingsView() {
             <div className="bg-secondary/50 rounded-lg p-4 space-y-2">
               <p className="text-sm text-foreground font-medium">📋 איך משיגים API ID ו-Hash?</p>
               <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
-                <li>היכנסו ל-<a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline">my.telegram.org</a> <ExternalLink className="w-3 h-3 inline" /></li>
+                <li>היכנסו ל-<a href="https://my.telegram.org/apps" target="_blank" rel="noopener" className="text-primary underline">my.telegram.org ↗</a></li>
                 <li>התחברו עם מספר הטלפון שלכם</li>
                 <li>לחצו על "API development tools"</li>
                 <li>מלאו שם אפליקציה (כל שם) ולחצו Create</li>
