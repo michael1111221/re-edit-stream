@@ -41,7 +41,6 @@ export function SettingsView() {
   const [mtprotoSaving, setMtprotoSaving] = useState(false);
   const [mtprotoLoaded, setMtprotoLoaded] = useState(false);
   const [setupStep, setSetupStep] = useState(1);
-  const [showSetupScript, setShowSetupScript] = useState(false);
   // deployMode removed — local only
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-webhook`;
