@@ -107,12 +107,24 @@ function ChannelCard({ channel, index, onToggleStatus, onDelete }: { channel: Ch
             </span>
           )}
         </div>
-        <button
-          onClick={() => onToggleStatus?.(channel)}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {channel.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onToggleStatus?.(channel)}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1"
+          >
+            {channel.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={() => {
+              if (confirm(`למחוק את הערוץ "${channel.name}"?`)) {
+                onDelete?.(channel);
+              }
+            }}
+            className="text-muted-foreground hover:text-destructive transition-colors p-1"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </motion.div>
   );
