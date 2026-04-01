@@ -17,7 +17,7 @@ const Index = () => {
   const [currentPage, setCurrentPage] = useState<PageView>("dashboard");
   const [addChannelOpen, setAddChannelOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
-  const { channels, videos, schedule, stats, addChannel, updateChannel, deleteScheduledPost } = useDashboardData();
+  const { channels, videos, schedule, stats, addChannel, updateChannel, deleteChannel, deleteScheduledPost } = useDashboardData();
   const { toast } = useToast();
 
   const handleToggleStatus = (channel: Channel) => {
@@ -48,6 +48,12 @@ const Index = () => {
                 channels={channels}
                 onAddChannel={() => setAddChannelOpen(true)}
                 onToggleStatus={handleToggleStatus}
+                onDeleteChannel={(channel) => {
+                  deleteChannel.mutate(channel.id, {
+                    onSuccess: () => toast({ title: `ערוץ "${channel.name}" נמחק` }),
+                    onError: (err) => toast({ title: "שגיאה במחיקה", description: err.message, variant: "destructive" }),
+                  });
+                }}
               />
             )}
             {currentPage === "mappings" && (

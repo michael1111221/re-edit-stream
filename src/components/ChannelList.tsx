@@ -8,7 +8,8 @@ import {
   Pause, 
   Play, 
   Video,
-  Plus
+  Plus,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +17,10 @@ interface ChannelListProps {
   channels: Channel[];
   onAddChannel?: () => void;
   onToggleStatus?: (channel: Channel) => void;
+  onDeleteChannel?: (channel: Channel) => void;
 }
 
-export function ChannelList({ channels, onAddChannel, onToggleStatus }: ChannelListProps) {
+export function ChannelList({ channels, onAddChannel, onToggleStatus, onDeleteChannel }: ChannelListProps) {
   const sourceChannels = channels.filter(c => c.type === "source");
   const targetChannels = channels.filter(c => c.type === "target");
 
@@ -40,7 +42,7 @@ export function ChannelList({ channels, onAddChannel, onToggleStatus }: ChannelL
           </div>
           {sourceChannels.length === 0 && <div className="text-sm text-muted-foreground text-center py-4">אין ערוצי מקור</div>}
           {sourceChannels.map((channel, i) => (
-            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} />
+            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} onDelete={onDeleteChannel} />
           ))}
         </div>
 
@@ -51,7 +53,7 @@ export function ChannelList({ channels, onAddChannel, onToggleStatus }: ChannelL
           </div>
           {targetChannels.length === 0 && <div className="text-sm text-muted-foreground text-center py-4">אין ערוצי יעד</div>}
           {targetChannels.map((channel, i) => (
-            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} />
+            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} onDelete={onDeleteChannel} />
           ))}
         </div>
       </div>
@@ -59,7 +61,7 @@ export function ChannelList({ channels, onAddChannel, onToggleStatus }: ChannelL
   );
 }
 
-function ChannelCard({ channel, index, onToggleStatus }: { channel: Channel; index: number; onToggleStatus?: (channel: Channel) => void }) {
+function ChannelCard({ channel, index, onToggleStatus, onDelete }: { channel: Channel; index: number; onToggleStatus?: (channel: Channel) => void; onDelete?: (channel: Channel) => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -105,12 +107,24 @@ function ChannelCard({ channel, index, onToggleStatus }: { channel: Channel; ind
             </span>
           )}
         </div>
-        <button
-          onClick={() => onToggleStatus?.(channel)}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {channel.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onToggleStatus?.(channel)}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1"
+          >
+            {channel.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={() => {
+              if (confirm(`למחוק את הערוץ "${channel.name}"?`)) {
+                onDelete?.(channel);
+              }
+            }}
+            className="text-muted-foreground hover:text-destructive transition-colors p-1"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </motion.div>
   );
