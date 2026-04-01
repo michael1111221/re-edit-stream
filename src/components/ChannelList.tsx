@@ -115,11 +115,7 @@ function ChannelCard({ channel, index, onToggleStatus, onDelete }: { channel: Ch
             {channel.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
           <button
-            onClick={() => {
-              if (confirm(`למחוק את הערוץ "${channel.name}"?`)) {
-                onDelete?.(channel);
-              }
-            }}
+            onClick={() => onDelete?.(channel)}
             className="text-muted-foreground hover:text-destructive transition-colors p-1"
           >
             <Trash2 className="w-3.5 h-3.5" />
