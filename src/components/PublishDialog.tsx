@@ -62,6 +62,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [scheduleDate, setScheduleDate] = useState<Date>();
   const [scheduleTime, setScheduleTime] = useState("12:00");
   const [inlineButtons, setInlineButtons] = useState<InlineButton[]>([]);
+  const [deleteBeforePublish, setDeleteBeforePublish] = useState(false);
+  const [lastMessageIds, setLastMessageIds] = useState<Record<string, number>>({});
 
   // Templates
   const [templates, setTemplates] = useState<Template[]>([]);
