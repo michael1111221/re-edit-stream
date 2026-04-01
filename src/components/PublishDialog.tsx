@@ -42,7 +42,7 @@ type PublishMode = "video_url" | "send_text";
 
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
   const { toast } = useToast();
-  const [mode, setMode] = useState<PublishMode>("video_url");
+  const [mode, setMode] = useState<PublishMode>("send_text");
   const [targetChannelId, setTargetChannelId] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [caption, setCaption] = useState("");
