@@ -20,7 +20,7 @@ interface ChannelListProps {
   onDeleteChannel?: (channel: Channel) => void;
 }
 
-export function ChannelList({ channels, onAddChannel, onToggleStatus }: ChannelListProps) {
+export function ChannelList({ channels, onAddChannel, onToggleStatus, onDeleteChannel }: ChannelListProps) {
   const sourceChannels = channels.filter(c => c.type === "source");
   const targetChannels = channels.filter(c => c.type === "target");
 
