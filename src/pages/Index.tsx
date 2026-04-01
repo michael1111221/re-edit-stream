@@ -89,6 +89,7 @@ const Index = () => {
             {currentPage === "schedule" && (
               <ScheduleView
                 schedule={schedule}
+                channels={channels}
                 onDelete={(id) => deleteScheduledPost.mutate(id, {
                   onSuccess: () => toast({ title: "פרסום מתוזמן נמחק" }),
                 })}
