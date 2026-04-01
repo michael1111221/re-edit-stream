@@ -36,6 +36,7 @@ from telethon.tl.types import (
     MessageMediaDocument,
     DocumentAttributeVideo,
     DocumentAttributeAnimated,
+    ReplyInlineMarkup,
 )
 import aiohttp
 
@@ -196,13 +197,17 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
         log.warning(f"No valid media items in group {group_id}")
         return
 
-    payload = {
-        "source_channel_handle": handle,
-        "message_id": messages[0].id,
-        "text": group_caption,
-        "media_type": "media_group",
-        "media_group": items,
-    }
+        # Check if any message in the group has inline buttons
+        has_buttons = any(isinstance(m.reply_markup, ReplyInlineMarkup) for m in messages)
+
+        payload = {
+            "source_channel_handle": handle,
+            "message_id": messages[0].id,
+            "text": group_caption,
+            "media_type": "media_group",
+            "media_group": items,
+            "has_buttons": has_buttons,
+        }
 
     await send_to_ingest(http_session, payload)
 
@@ -283,11 +288,15 @@ async def main():
         # Regular (non-grouped) message
         log.info(f"New post in {handle}: type={media_type}, text={message.text[:50] if message.text else '(no text)'}...")
 
+        # Detect inline buttons (ads)
+        has_buttons = isinstance(message.reply_markup, ReplyInlineMarkup)
+
         payload = {
             "source_channel_handle": handle,
             "message_id": message.id,
             "text": message.text or message.message or "",
             "media_type": media_type,
+            "has_buttons": has_buttons,
         }
 
         if media_type != "text" and message.file:
