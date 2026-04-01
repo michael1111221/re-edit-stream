@@ -61,7 +61,7 @@ export function ChannelList({ channels, onAddChannel, onToggleStatus, onDeleteCh
   );
 }
 
-function ChannelCard({ channel, index, onToggleStatus }: { channel: Channel; index: number; onToggleStatus?: (channel: Channel) => void }) {
+function ChannelCard({ channel, index, onToggleStatus, onDelete }: { channel: Channel; index: number; onToggleStatus?: (channel: Channel) => void; onDelete?: (channel: Channel) => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
