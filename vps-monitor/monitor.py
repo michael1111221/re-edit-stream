@@ -1,8 +1,11 @@
 """
 Telegram Channel Monitor (MTProto / Telethon)
 =============================================
-Runs on a VPS to monitor source channels and forward new posts 
+Runs locally to monitor source channels and forward new posts 
 to the Lovable Cloud ingest-post edge function.
+
+Supports media groups (albums) — multiple photos/videos sent together
+are buffered and forwarded as a single album.
 
 Setup:
   1. pip install telethon aiohttp
@@ -23,7 +26,9 @@ import os
 import asyncio
 import logging
 import json
+import base64
 from datetime import datetime
+from collections import defaultdict
 
 from telethon import TelegramClient, events
 from telethon.tl.types import (
@@ -54,11 +59,12 @@ INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
 SESSION_NAME = os.environ.get("SESSION_NAME", "monitor_session")
 
 # Channels to monitor — set via MONITOR_CHANNELS env var as comma-separated handles
-# e.g. MONITOR_CHANNELS="@channel1,@channel2,@channel3"
-# If empty, the script will fetch the list from the ingest endpoint
 MONITOR_CHANNELS = [
     ch.strip() for ch in os.environ.get("MONITOR_CHANNELS", "").split(",") if ch.strip()
 ]
+
+# How long to wait for more messages in a media group before sending (seconds)
+MEDIA_GROUP_WAIT = 1.5
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,30 +73,36 @@ logging.basicConfig(
 )
 log = logging.getLogger("monitor")
 
+# ── Media group buffer ──────────────────────────────────────────────
+
+# { grouped_id: { "messages": [...], "handle": str, "timer": asyncio.TimerHandle } }
+media_group_buffer: dict[int, dict] = {}
+media_group_lock = asyncio.Lock()
+
 # ── Helpers ─────────────────────────────────────────────────────────
 
-def classify_media(message) -> tuple[str, str | None]:
-    """Returns (media_type, file_id_or_none)."""
+def classify_media(message) -> str:
+    """Returns media_type string."""
     if not message.media:
-        return ("text", None)
+        return "text"
 
     if isinstance(message.media, MessageMediaPhoto):
-        return ("photo", None)
+        return "photo"
 
     if isinstance(message.media, MessageMediaDocument):
         doc = message.media.document
         if doc is None:
-            return ("document", None)
+            return "document"
 
         for attr in doc.attributes:
             if isinstance(attr, DocumentAttributeAnimated):
-                return ("animation", None)
+                return "animation"
             if isinstance(attr, DocumentAttributeVideo):
-                return ("video", None)
+                return "video"
 
-        return ("document", None)
+        return "document"
 
-    return ("text", None)
+    return "text"
 
 
 async def download_and_get_bytes(client: TelegramClient, message) -> bytes | None:
@@ -112,7 +124,7 @@ async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
     }
 
     try:
-        async with session.post(INGEST_URL, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+        async with session.post(INGEST_URL, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
             body = await resp.text()
             if resp.status == 200:
                 log.info(f"✅ Ingested: {payload.get('source_channel_handle')} → {body}")
@@ -127,6 +139,72 @@ def get_channel_handle(chat) -> str:
     if hasattr(chat, "username") and chat.username:
         return f"@{chat.username}"
     return str(chat.id)
+
+
+async def prepare_media_item(client: TelegramClient, message) -> dict | None:
+    """Prepare a single media item dict for the media_group payload."""
+    media_type = classify_media(message)
+    if media_type == "text":
+        return None
+
+    item = {
+        "media_type": media_type,
+        "text": message.text or message.message or "",
+    }
+
+    if message.file:
+        media_bytes = await download_and_get_bytes(client, message)
+        if media_bytes and len(media_bytes) < 10 * 1024 * 1024:
+            item["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
+            item["media_filename"] = message.file.name or f"media.{message.file.ext or 'bin'}"
+            item["media_mime"] = message.file.mime_type or "application/octet-stream"
+        elif media_bytes:
+            log.warning(f"Media too large ({len(media_bytes)} bytes), skipping")
+            return None
+
+    return item
+
+
+async def flush_media_group(group_id: int, client: TelegramClient, http_session: aiohttp.ClientSession):
+    """Send all buffered messages of a media group as one album."""
+    async with media_group_lock:
+        group = media_group_buffer.pop(group_id, None)
+
+    if not group:
+        return
+
+    messages = group["messages"]
+    handle = group["handle"]
+
+    log.info(f"Flushing media group {group_id} with {len(messages)} items from {handle}")
+
+    # Sort by message ID to preserve order
+    messages.sort(key=lambda m: m.id)
+
+    # Prepare all media items
+    items = []
+    group_caption = ""
+    for msg in messages:
+        item = await prepare_media_item(client, msg)
+        if item:
+            # Only the first item should carry the caption
+            if not group_caption and item.get("text"):
+                group_caption = item["text"]
+            items.append(item)
+
+    if not items:
+        log.warning(f"No valid media items in group {group_id}")
+        return
+
+    payload = {
+        "source_channel_handle": handle,
+        "message_id": messages[0].id,
+        "text": group_caption,
+        "media_type": "media_group",
+        "media_group": items,
+    }
+
+    await send_to_ingest(http_session, payload)
 
 
 # ── Main ────────────────────────────────────────────────────────────
@@ -159,6 +237,7 @@ async def main():
         log.warning("No MONITOR_CHANNELS set. Listening to ALL channels the user is in.")
 
     http_session = aiohttp.ClientSession()
+    loop = asyncio.get_event_loop()
 
     @client.on(events.NewMessage(chats=list(channel_ids) if channel_ids else None))
     async def handler(event):
@@ -170,15 +249,40 @@ async def main():
             return
 
         handle = get_channel_handle(chat)
-        media_type, _ = classify_media(message)
+        media_type = classify_media(message)
 
+        # Check if this message is part of a media group (album)
+        if message.grouped_id:
+            group_id = message.grouped_id
+            log.info(f"Media group {group_id} item in {handle}: type={media_type}")
+
+            async with media_group_lock:
+                if group_id not in media_group_buffer:
+                    media_group_buffer[group_id] = {
+                        "messages": [],
+                        "handle": handle,
+                        "timer": None,
+                    }
+
+                media_group_buffer[group_id]["messages"].append(message)
+
+                # Cancel existing timer and set a new one
+                existing_timer = media_group_buffer[group_id].get("timer")
+                if existing_timer:
+                    existing_timer.cancel()
+
+                # Set timer to flush after MEDIA_GROUP_WAIT seconds
+                media_group_buffer[group_id]["timer"] = loop.call_later(
+                    MEDIA_GROUP_WAIT,
+                    lambda gid=group_id: asyncio.ensure_future(
+                        flush_media_group(gid, client, http_session)
+                    ),
+                )
+            return
+
+        # Regular (non-grouped) message
         log.info(f"New post in {handle}: type={media_type}, text={message.text[:50] if message.text else '(no text)'}...")
 
-        # For media, we need to upload it somewhere accessible.
-        # Option 1: Download and send as base64 (for small files)
-        # Option 2: Download to disk and upload to storage
-        # For now, we send text + metadata; media_url will be handled by VPS file server
-        
         payload = {
             "source_channel_handle": handle,
             "message_id": message.id,
@@ -186,17 +290,10 @@ async def main():
             "media_type": media_type,
         }
 
-        # If there's media, download it and we'll need to handle it
-        # For videos/photos, we can use the bot to forward if it has access,
-        # or we download via MTProto and upload to a temporary URL
         if media_type != "text" and message.file:
-            # Download media
             media_bytes = await download_and_get_bytes(client, message)
             if media_bytes:
-                import base64
-                # Send as base64 for the edge function to process
-                # Note: for large files (>10MB), consider using storage upload instead
-                if len(media_bytes) < 10 * 1024 * 1024:  # 10MB limit
+                if len(media_bytes) < 10 * 1024 * 1024:
                     payload["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
                     payload["media_filename"] = message.file.name or f"media.{message.file.ext or 'bin'}"
                     payload["media_mime"] = message.file.mime_type or "application/octet-stream"

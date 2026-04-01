@@ -4,22 +4,34 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 /**
  * Ingest Post Endpoint
  * 
- * Receives posts from an external MTProto client (running on VPS)
+ * Receives posts from an external MTProto client (running locally)
  * that monitors source channels the bot can't access.
+ * 
+ * Supports single media and media groups (albums).
  * 
  * Auth: Bearer token must match INGEST_API_KEY secret.
  * 
- * Expected POST body:
+ * Expected POST body (single):
  * {
  *   source_channel_handle: "@channelname",
  *   message_id: 12345,
  *   text: "Post text/caption",
  *   media_type: "video" | "photo" | "document" | "animation" | "text",
- *   media_file_id?: "...",
- *   media_url?: "...",
- *   media_base64?: "...",       // base64-encoded media from MTProto download
+ *   media_base64?: "...",
  *   media_filename?: "...",
  *   media_mime?: "...",
+ * }
+ * 
+ * Expected POST body (media group / album):
+ * {
+ *   source_channel_handle: "@channelname",
+ *   message_id: 12345,
+ *   text: "Album caption",
+ *   media_type: "media_group",
+ *   media_group: [
+ *     { media_type: "photo", media_base64: "...", media_filename: "...", media_mime: "..." },
+ *     { media_type: "photo", media_base64: "...", media_filename: "...", media_mime: "..." },
+ *   ]
  * }
  */
 
@@ -75,6 +87,7 @@ serve(async (req) => {
       media_base64,
       media_filename,
       media_mime,
+      media_group,
     } = body;
 
     if (!source_channel_handle) {
@@ -106,16 +119,6 @@ serve(async (req) => {
       );
     }
 
-    // If media_base64 is provided, upload to Telegram via sendXxx with multipart
-    let resolvedMediaUrl = media_url || media_file_id;
-
-    if (media_base64 && !resolvedMediaUrl) {
-      // Upload base64 media to storage, then use the public URL
-      // Or send directly to Telegram via multipart form
-      // For simplicity, we'll decode and send as multipart to Telegram
-      resolvedMediaUrl = `data:${media_mime || "application/octet-stream"};base64,${media_base64}`;
-    }
-
     // Find active mappings
     const { data: mappings } = await supabase
       .from("channel_mappings")
@@ -140,11 +143,18 @@ serve(async (req) => {
 
     for (const mapping of mappings) {
       try {
-        const result = await processMapping(
-          supabase, baseUrl, mapping, text, media_type,
-          media_base64, media_filename, media_mime,
-          media_file_id, media_url, LOVABLE_API_KEY
-        );
+        let result;
+        if (media_type === "media_group" && Array.isArray(media_group)) {
+          result = await processMediaGroup(
+            supabase, baseUrl, mapping, text, media_group, LOVABLE_API_KEY
+          );
+        } else {
+          result = await processMapping(
+            supabase, baseUrl, mapping, text, media_type,
+            media_base64, media_filename, media_mime,
+            media_file_id, media_url, LOVABLE_API_KEY
+          );
+        }
         results.push({ mapping_id: mapping.id, target: mapping.target_channel?.handle, ...result });
       } catch (err: any) {
         console.error(`Error processing mapping ${mapping.id}:`, err);
@@ -165,24 +175,14 @@ serve(async (req) => {
   }
 });
 
-async function processMapping(
+// ── Process text for a mapping (shared logic) ──────────────────────
+
+async function processText(
   supabase: any,
-  baseUrl: string,
   mapping: any,
   originalText: string,
-  mediaType: string,
-  mediaBase64?: string,
-  mediaFilename?: string,
-  mediaMime?: string,
-  mediaFileId?: string,
-  mediaUrl?: string,
   lovableApiKey?: string
-): Promise<{ success: boolean; error?: string }> {
-  const targetChannel = mapping.target_channel;
-  if (!targetChannel) {
-    return { success: false, error: "Target channel not found" };
-  }
-
+): Promise<string> {
   let processedText = originalText;
 
   // 1. Banned words filter
@@ -197,8 +197,7 @@ async function processMapping(
 
       for (const bw of bannedWords) {
         if (bw.action === "skip_post" && lowerText.includes(bw.word.toLowerCase())) {
-          console.log(`Skipping post — banned word "${bw.word}"`);
-          return { success: false, error: `Skipped: banned word "${bw.word}"` };
+          throw new Error(`SKIP:banned word "${bw.word}"`);
         }
       }
 
@@ -234,25 +233,160 @@ async function processMapping(
     processedText = processedText + "\n\n" + mapping.signature_text;
   }
 
-  // 5. Inline buttons
-  let reply_markup: any = undefined;
+  return processedText;
+}
+
+function buildReplyMarkup(mapping: any): any | undefined {
   if (mapping.add_buttons && mapping.default_buttons) {
     const buttons = Array.isArray(mapping.default_buttons) ? mapping.default_buttons : [];
     if (buttons.length > 0) {
-      reply_markup = {
+      return {
         inline_keyboard: buttons.map((btn: any) => [{ text: btn.text, url: btn.url }]),
       };
     }
   }
+  return undefined;
+}
 
-  // 6. Send to target
+// ── Process media group (album) ────────────────────────────────────
+
+async function processMediaGroup(
+  supabase: any,
+  baseUrl: string,
+  mapping: any,
+  originalCaption: string,
+  mediaItems: any[],
+  lovableApiKey?: string
+): Promise<{ success: boolean; error?: string }> {
+  const targetChannel = mapping.target_channel;
+  if (!targetChannel) {
+    return { success: false, error: "Target channel not found" };
+  }
+
+  let processedCaption: string;
+  try {
+    processedCaption = await processText(supabase, mapping, originalCaption, lovableApiKey);
+  } catch (err: any) {
+    if (err.message?.startsWith("SKIP:")) {
+      console.log(`Skipping post — ${err.message}`);
+      return { success: false, error: err.message };
+    }
+    throw err;
+  }
+
+  const targetChatId = targetChannel.handle.startsWith("@")
+    ? targetChannel.handle
+    : `@${targetChannel.handle}`;
+
+  // First, upload each media item individually to get file_ids
+  // Then use sendMediaGroup with the file_ids
+  const uploadedMedia: { type: string; media: string }[] = [];
+
+  for (let i = 0; i < mediaItems.length; i++) {
+    const item = mediaItems[i];
+    if (!item.media_base64) continue;
+
+    const binaryData = Uint8Array.from(atob(item.media_base64), c => c.charCodeAt(0));
+    const blob = new Blob([binaryData], { type: item.media_mime || "application/octet-stream" });
+
+    // Upload via send method to get file_id, then delete
+    // Actually, for sendMediaGroup we need to use multipart with attach://
+    const mediaType = item.media_type === "video" ? "video" : "photo";
+    uploadedMedia.push({
+      type: mediaType,
+      media: `attach://file${i}`,
+    });
+  }
+
+  if (uploadedMedia.length === 0) {
+    return { success: false, error: "No valid media items in group" };
+  }
+
+  // Build the media array for sendMediaGroup
+  const mediaArray = uploadedMedia.map((m, i) => ({
+    type: m.type,
+    media: m.media,
+    ...(i === 0 && processedCaption ? { caption: processedCaption, parse_mode: "HTML" } : {}),
+  }));
+
+  // Build multipart form
+  const formData = new FormData();
+  formData.append("chat_id", targetChatId);
+  formData.append("media", JSON.stringify(mediaArray));
+
+  for (let i = 0; i < mediaItems.length; i++) {
+    const item = mediaItems[i];
+    if (!item.media_base64) continue;
+    const binaryData = Uint8Array.from(atob(item.media_base64), c => c.charCodeAt(0));
+    const blob = new Blob([binaryData], { type: item.media_mime || "application/octet-stream" });
+    formData.append(`file${i}`, blob, item.media_filename || `file${i}.jpg`);
+  }
+
+  const resp = await fetch(`${baseUrl}/sendMediaGroup`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await resp.json();
+
+  if (!result.ok) {
+    console.error(`Telegram sendMediaGroup failed:`, result.description);
+    return { success: false, error: result.description };
+  }
+
+  console.log(`Forwarded album (${mediaItems.length} items) to ${targetChatId}`);
+
+  // Log to videos table
+  await supabase.from("videos").insert({
+    title: (processedCaption || `Album (${mediaItems.length} items)`).substring(0, 100),
+    source_channel_id: mapping.source_channel_id,
+    target_channel_id: mapping.target_channel_id,
+    status: "completed",
+    progress: 100,
+  });
+
+  return { success: true };
+}
+
+// ── Process single message ─────────────────────────────────────────
+
+async function processMapping(
+  supabase: any,
+  baseUrl: string,
+  mapping: any,
+  originalText: string,
+  mediaType: string,
+  mediaBase64?: string,
+  mediaFilename?: string,
+  mediaMime?: string,
+  mediaFileId?: string,
+  mediaUrl?: string,
+  lovableApiKey?: string
+): Promise<{ success: boolean; error?: string }> {
+  const targetChannel = mapping.target_channel;
+  if (!targetChannel) {
+    return { success: false, error: "Target channel not found" };
+  }
+
+  let processedText: string;
+  try {
+    processedText = await processText(supabase, mapping, originalText, lovableApiKey);
+  } catch (err: any) {
+    if (err.message?.startsWith("SKIP:")) {
+      console.log(`Skipping post — ${err.message}`);
+      return { success: false, error: err.message };
+    }
+    throw err;
+  }
+
+  const reply_markup = buildReplyMarkup(mapping);
+
   const targetChatId = targetChannel.handle.startsWith("@")
     ? targetChannel.handle
     : `@${targetChannel.handle}`;
 
   let result: any;
 
-  // If we have base64 media, send via multipart form data
   if (mediaBase64 && mediaType !== "text") {
     result = await sendMediaMultipart(
       baseUrl, targetChatId, mediaType, mediaBase64,
@@ -260,7 +394,6 @@ async function processMapping(
       processedText, reply_markup
     );
   } else {
-    // Use URL or file_id
     const baseBody: any = {
       chat_id: targetChatId,
       parse_mode: "HTML",
@@ -302,7 +435,6 @@ async function processMapping(
 
   console.log(`Forwarded to ${targetChatId}`);
 
-  // Log to videos table
   await supabase.from("videos").insert({
     title: (processedText || "Media post").substring(0, 100),
     source_channel_id: mapping.source_channel_id,
