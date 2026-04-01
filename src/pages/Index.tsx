@@ -74,6 +74,9 @@ const Index = () => {
             {currentPage === "mappings" && (
               <MappingsView channels={channels} />
             )}
+            {currentPage === "catalog" && (
+              <CatalogView channels={channels} />
+            )}
             {currentPage === "pipeline" && (
               <div className="space-y-6">
                 <div>
