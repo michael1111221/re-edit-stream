@@ -48,7 +48,20 @@ const Index = () => {
                 channels={channels}
                 onAddChannel={() => setAddChannelOpen(true)}
                 onToggleStatus={handleToggleStatus}
-                onDeleteChannel={(channel) => {
+                onDeleteChannel={async (channel) => {
+                  // Check for connected mappings
+                  const { data: mappings } = await supabase
+                    .from("channel_mappings")
+                    .select("id, source_channel_id, target_channel_id")
+                    .or(`source_channel_id.eq.${channel.id},target_channel_id.eq.${channel.id}`);
+                  
+                  const count = mappings?.length || 0;
+                  const msg = count > 0
+                    ? `לערוץ "${channel.name}" יש ${count} מיפויים מחוברים. המחיקה תסיר גם אותם. להמשיך?`
+                    : `למחוק את הערוץ "${channel.name}"?`;
+                  
+                  if (!confirm(msg)) return;
+                  
                   deleteChannel.mutate(channel.id, {
                     onSuccess: () => toast({ title: `ערוץ "${channel.name}" נמחק` }),
                     onError: (err) => toast({ title: "שגיאה במחיקה", description: err.message, variant: "destructive" }),
