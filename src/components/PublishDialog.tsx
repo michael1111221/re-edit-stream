@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Channel } from "@/types/dashboard";
-import { sendMessageToChannel, InlineButton } from "@/lib/telegram";
+import { sendMessageToChannel, InlineButton, deleteMessage } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen } from "lucide-react";
