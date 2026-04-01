@@ -6,7 +6,8 @@ import {
   Settings, 
   Zap,
   Send,
-  Route
+  Route,
+  BookOpen
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
