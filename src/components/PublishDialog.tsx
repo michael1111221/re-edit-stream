@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,19 +17,35 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Channel } from "@/types/dashboard";
 import { sendMessageToChannel, InlineButton } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage } from "lucide-react";
+import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { Json } from "@/integrations/supabase/types";
 
 interface PublishDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channels: Channel[];
   onScheduled?: () => void;
+}
+
+interface Template {
+  id: string;
+  name: string;
+  caption: string;
+  channel_handles: string[];
+  inline_buttons: InlineButton[];
 }
 
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
@@ -47,7 +63,65 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [scheduleTime, setScheduleTime] = useState("12:00");
   const [inlineButtons, setInlineButtons] = useState<InlineButton[]>([]);
 
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+
   const targetChannels = channels.filter(c => c.type === "target" && c.status === "active");
+
+  useEffect(() => {
+    if (open) loadTemplates();
+  }, [open]);
+
+  const loadTemplates = async () => {
+    const { data } = await supabase.from("post_templates").select("*").order("created_at", { ascending: false });
+    if (data) {
+      setTemplates(data.map(t => ({
+        id: t.id,
+        name: t.name,
+        caption: t.caption,
+        channel_handles: (t.channel_handles as any) || [],
+        inline_buttons: (t.inline_buttons as any) || [],
+      })));
+    }
+  };
+
+  const saveAsTemplate = async () => {
+    if (!templateName.trim()) {
+      toast({ title: "הזן שם לתבנית", variant: "destructive" });
+      return;
+    }
+    const { error } = await supabase.from("post_templates").insert({
+      name: templateName,
+      caption,
+      channel_handles: selectedChannels as unknown as Json,
+      inline_buttons: inlineButtons as unknown as Json,
+    });
+    if (error) {
+      toast({ title: "שגיאה בשמירה", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "✅ תבנית נשמרה!" });
+    setTemplateName("");
+    setShowSaveTemplate(false);
+    loadTemplates();
+  };
+
+  const loadTemplate = (templateId: string) => {
+    const t = templates.find(t => t.id === templateId);
+    if (!t) return;
+    setCaption(t.caption);
+    setSelectedChannels(t.channel_handles);
+    setInlineButtons(t.inline_buttons);
+    toast({ title: `📋 תבנית "${t.name}" נטענה` });
+  };
+
+  const deleteTemplate = async (id: string) => {
+    await supabase.from("post_templates").delete().eq("id", id);
+    loadTemplates();
+    toast({ title: "תבנית נמחקה" });
+  };
 
   const toggleChannel = (handle: string) => {
     setSelectedChannels(prev =>
@@ -245,6 +319,62 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         </DialogHeader>
 
         <form onSubmit={handlePublish} className="space-y-4">
+          {/* Templates Section */}
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm text-foreground flex items-center gap-1.5">
+                <FolderOpen className="w-4 h-4 text-primary" /> תבניות שמורות
+              </Label>
+              <Button
+                type="button" variant="outline" size="sm"
+                onClick={() => setShowSaveTemplate(!showSaveTemplate)}
+                className="h-7 text-xs gap-1"
+              >
+                <Save className="w-3 h-3" /> שמור תבנית
+              </Button>
+            </div>
+
+            {templates.length > 0 && (
+              <div className="space-y-1 max-h-28 overflow-y-auto">
+                {templates.map(t => (
+                  <div key={t.id} className="flex items-center justify-between rounded px-2 py-1.5 bg-secondary hover:bg-muted transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => loadTemplate(t.id)}
+                      className="text-sm text-foreground hover:text-primary transition-colors text-right flex-1"
+                    >
+                      {t.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteTemplate(t.id)}
+                      className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {templates.length === 0 && (
+              <p className="text-xs text-muted-foreground">אין תבניות שמורות עדיין</p>
+            )}
+
+            {showSaveTemplate && (
+              <div className="flex gap-2 items-center mt-2">
+                <Input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="שם התבנית..."
+                  className="bg-secondary border-border text-sm flex-1"
+                />
+                <Button type="button" size="sm" onClick={saveAsTemplate} className="h-8 text-xs">
+                  שמור
+                </Button>
+              </div>
+            )}
+          </div>
+
           {/* Target Channels - Multi Select */}
           <div>
             <div className="flex items-center justify-between mb-2">
