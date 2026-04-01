@@ -73,8 +73,29 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const targetChannels = channels.filter(c => c.type === "target" && c.status === "active");
 
   useEffect(() => {
-    if (open) loadTemplates();
+    if (open) {
+      loadTemplates();
+      loadLastMessageIds();
+    }
   }, [open]);
+
+  const loadLastMessageIds = async () => {
+    const { data } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "last_published_messages")
+      .single();
+    if (data?.value && typeof data.value === "object") {
+      setLastMessageIds(data.value as Record<string, number>);
+    }
+  };
+
+  const saveLastMessageIds = async (ids: Record<string, number>) => {
+    await supabase.from("system_settings").upsert({
+      key: "last_published_messages",
+      value: ids as unknown as Json,
+    });
+  };
 
   const loadTemplates = async () => {
     const { data } = await supabase.from("post_templates").select("*").order("created_at", { ascending: false });
