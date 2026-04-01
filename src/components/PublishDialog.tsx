@@ -38,7 +38,7 @@ interface PublishDialogProps {
   onScheduled?: () => void;
 }
 
-type PublishMode = "video_url" | "copy_message";
+type PublishMode = "video_url" | "send_text";
 
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
   const { toast } = useToast();
