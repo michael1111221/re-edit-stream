@@ -46,7 +46,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [targetChannelId, setTargetChannelId] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [caption, setCaption] = useState("");
-  const [messageId, setMessageId] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
 
