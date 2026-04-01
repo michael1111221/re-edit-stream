@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Channel } from "@/types/dashboard";
-import { sendVideoToChannel, copyMessageToChannel, InlineButton } from "@/lib/telegram";
+import { sendVideoToChannel, sendMessageToChannel, InlineButton } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Loader2, Video, MessageSquare, Plus, Trash2, CalendarIcon, Clock, Link2, Languages } from "lucide-react";
