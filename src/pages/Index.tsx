@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SidebarNav } from "@/components/SidebarNav";
+import { supabase } from "@/integrations/supabase/client";
 import { DashboardView } from "@/components/DashboardView";
 import { ChannelList } from "@/components/ChannelList";
 import { VideoPipeline } from "@/components/VideoPipeline";
