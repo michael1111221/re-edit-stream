@@ -8,7 +8,8 @@ import {
   Pause, 
   Play, 
   Video,
-  Plus
+  Plus,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,7 @@ interface ChannelListProps {
   channels: Channel[];
   onAddChannel?: () => void;
   onToggleStatus?: (channel: Channel) => void;
+  onDeleteChannel?: (channel: Channel) => void;
 }
 
 export function ChannelList({ channels, onAddChannel, onToggleStatus }: ChannelListProps) {
