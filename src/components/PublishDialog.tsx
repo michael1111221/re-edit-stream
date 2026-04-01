@@ -548,6 +548,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             ))}
           </div>
 
+          {/* Delete Before Publish Toggle */}
+          <div className="rounded-md border border-border p-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm text-foreground flex items-center gap-1.5">
+                <RotateCcw className="w-4 h-4 text-destructive" /> מחק פרסום קודם לפני שליחה
+              </Label>
+              <Switch checked={deleteBeforePublish} onCheckedChange={setDeleteBeforePublish} />
+            </div>
+            {deleteBeforePublish && (
+              <p className="text-xs text-muted-foreground mt-2">
+                הפרסום האחרון שנשלח לכל ערוץ יימחק אוטומטית לפני שליחת הפרסום החדש
+              </p>
+            )}
+          </div>
+
           {/* Schedule Toggle */}
           <div className="rounded-md border border-border p-3 space-y-3">
             <div className="flex items-center justify-between">
