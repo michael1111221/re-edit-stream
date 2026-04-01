@@ -36,6 +36,7 @@ from telethon.tl.types import (
     MessageMediaDocument,
     DocumentAttributeVideo,
     DocumentAttributeAnimated,
+    ReplyInlineMarkup,
 )
 import aiohttp
 
