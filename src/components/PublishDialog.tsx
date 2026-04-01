@@ -294,12 +294,27 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     setIsSending(true);
     let successCount = 0;
     let failCount = 0;
+    const updatedMessageIds = { ...lastMessageIds };
 
     for (const handle of selectedChannels) {
       try {
+        // Delete previous message if toggle is on
+        if (deleteBeforePublish && lastMessageIds[handle]) {
+          try {
+            await deleteMessage(handle, lastMessageIds[handle]);
+          } catch (err) {
+            console.warn(`Could not delete last message in ${handle}:`, err);
+          }
+        }
+
         const result = await sendToChannel(handle, validButtons);
         if (result.ok) {
           successCount++;
+          // Save the new message_id
+          const msgId = result.result?.message_id || result.result?.message_id;
+          if (msgId) {
+            updatedMessageIds[handle] = msgId;
+          }
         } else {
           failCount++;
           console.error(`Failed to publish to ${handle}:`, result.description);
@@ -308,6 +323,12 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         failCount++;
         console.error(`Error publishing to ${handle}:`, err);
       }
+    }
+
+    // Save updated message IDs
+    if (successCount > 0) {
+      setLastMessageIds(updatedMessageIds);
+      await saveLastMessageIds(updatedMessageIds);
     }
 
     setIsSending(false);
