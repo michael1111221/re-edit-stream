@@ -78,3 +78,7 @@ export async function setWebhook(url: string): Promise<TelegramResponse> {
 export async function deleteWebhook(): Promise<TelegramResponse> {
   return telegramAction("deleteWebhook");
 }
+
+export async function deleteMessage(chatId: string, messageId: number): Promise<TelegramResponse> {
+  return telegramAction("deleteMessage", { chat_id: chatId, message_id: messageId });
+}

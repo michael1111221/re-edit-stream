@@ -25,10 +25,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Channel } from "@/types/dashboard";
-import { sendMessageToChannel, InlineButton } from "@/lib/telegram";
+import { sendMessageToChannel, InlineButton, deleteMessage } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen } from "lucide-react";
+import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Json } from "@/integrations/supabase/types";
@@ -62,6 +62,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [scheduleDate, setScheduleDate] = useState<Date>();
   const [scheduleTime, setScheduleTime] = useState("12:00");
   const [inlineButtons, setInlineButtons] = useState<InlineButton[]>([]);
+  const [deleteBeforePublish, setDeleteBeforePublish] = useState(false);
+  const [lastMessageIds, setLastMessageIds] = useState<Record<string, number>>({});
 
   // Templates
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -71,8 +73,29 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const targetChannels = channels.filter(c => c.type === "target" && c.status === "active");
 
   useEffect(() => {
-    if (open) loadTemplates();
+    if (open) {
+      loadTemplates();
+      loadLastMessageIds();
+    }
   }, [open]);
+
+  const loadLastMessageIds = async () => {
+    const { data } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "last_published_messages")
+      .single();
+    if (data?.value && typeof data.value === "object") {
+      setLastMessageIds(data.value as Record<string, number>);
+    }
+  };
+
+  const saveLastMessageIds = async (ids: Record<string, number>) => {
+    await supabase.from("system_settings").upsert({
+      key: "last_published_messages",
+      value: ids as unknown as Json,
+    });
+  };
 
   const loadTemplates = async () => {
     const { data } = await supabase.from("post_templates").select("*").order("created_at", { ascending: false });
@@ -271,12 +294,27 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     setIsSending(true);
     let successCount = 0;
     let failCount = 0;
+    const updatedMessageIds = { ...lastMessageIds };
 
     for (const handle of selectedChannels) {
       try {
+        // Delete previous message if toggle is on
+        if (deleteBeforePublish && lastMessageIds[handle]) {
+          try {
+            await deleteMessage(handle, lastMessageIds[handle]);
+          } catch (err) {
+            console.warn(`Could not delete last message in ${handle}:`, err);
+          }
+        }
+
         const result = await sendToChannel(handle, validButtons);
         if (result.ok) {
           successCount++;
+          // Save the new message_id
+          const msgId = result.result?.message_id || result.result?.message_id;
+          if (msgId) {
+            updatedMessageIds[handle] = msgId;
+          }
         } else {
           failCount++;
           console.error(`Failed to publish to ${handle}:`, result.description);
@@ -285,6 +323,12 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         failCount++;
         console.error(`Error publishing to ${handle}:`, err);
       }
+    }
+
+    // Save updated message IDs
+    if (successCount > 0) {
+      setLastMessageIds(updatedMessageIds);
+      await saveLastMessageIds(updatedMessageIds);
     }
 
     setIsSending(false);
@@ -502,6 +546,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                 </button>
               </div>
             ))}
+          </div>
+
+          {/* Delete Before Publish Toggle */}
+          <div className="rounded-md border border-border p-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm text-foreground flex items-center gap-1.5">
+                <RotateCcw className="w-4 h-4 text-destructive" /> מחק פרסום קודם לפני שליחה
+              </Label>
+              <Switch checked={deleteBeforePublish} onCheckedChange={setDeleteBeforePublish} />
+            </div>
+            {deleteBeforePublish && (
+              <p className="text-xs text-muted-foreground mt-2">
+                הפרסום האחרון שנשלח לכל ערוץ יימחק אוטומטית לפני שליחת הפרסום החדש
+              </p>
+            )}
           </div>
 
           {/* Schedule Toggle */}

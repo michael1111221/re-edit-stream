@@ -247,6 +247,19 @@ serve(async (req) => {
         break;
       }
 
+      case "deleteMessage": {
+        const resp = await fetch(`${baseUrl}/deleteMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: params.chat_id,
+            message_id: params.message_id,
+          }),
+        });
+        result = await resp.json();
+        break;
+      }
+
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${action}` }),
