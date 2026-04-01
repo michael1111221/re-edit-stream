@@ -47,7 +47,6 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [videoUrl, setVideoUrl] = useState("");
   const [caption, setCaption] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
 
   // Scheduling
@@ -129,7 +128,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       setIsSending(true);
       try {
         const { error } = await supabase.from("scheduled_posts").insert({
-          title: caption || videoUrl || `הודעה מ-${fromChatId}`,
+          title: caption || videoUrl || "הודעה מתוזמנת",
           channel_id: targetChannel?.id || null,
           scheduled_for: scheduledFor.toISOString(),
           video_id: null,
@@ -167,22 +166,20 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           validButtons.length > 0 ? validButtons : undefined
         );
       } else {
-        if (!fromChatId || !messageId) {
-          toast({ title: "הזן את מזהה הערוץ והודעה", variant: "destructive" });
+        if (!caption.trim()) {
+          toast({ title: "כתוב הודעה לשליחה", variant: "destructive" });
           setIsSending(false);
           return;
         }
-        result = await copyMessageToChannel(
+        result = await sendMessageToChannel(
           targetChannelId,
-          fromChatId,
-          parseInt(messageId, 10),
-          caption || undefined,
+          caption,
           validButtons.length > 0 ? validButtons : undefined
         );
       }
 
       if (result.ok) {
-        toast({ title: "✅ הסרטון פורסם בהצלחה!" });
+        toast({ title: "✅ פורסם בהצלחה!" });
         onOpenChange(false);
         resetForm();
       } else {
@@ -202,8 +199,6 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const resetForm = () => {
     setVideoUrl("");
     setCaption("");
-    setFromChatId("");
-    setMessageId("");
     setTargetChannelId("");
     setIsScheduled(false);
     setScheduleDate(undefined);
@@ -225,6 +220,17 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         <div className="flex gap-2 p-1 bg-secondary rounded-md">
           <button
             type="button"
+            onClick={() => setMode("send_text")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded text-sm font-medium transition-colors",
+              mode === "send_text" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <MessageSquare className="w-4 h-4" />
+            שלח הודעה
+          </button>
+          <button
+            type="button"
             onClick={() => setMode("video_url")}
             className={cn(
               "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded text-sm font-medium transition-colors",
@@ -233,17 +239,6 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           >
             <Video className="w-4 h-4" />
             שלח סרטון
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("copy_message")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded text-sm font-medium transition-colors",
-              mode === "copy_message" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <MessageSquare className="w-4 h-4" />
-            העתק הודעה
           </button>
         </div>
 
@@ -268,7 +263,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             )}
           </div>
 
-          {mode === "video_url" ? (
+          {mode === "video_url" && (
             <div>
               <Label className="text-sm text-muted-foreground">קישור לסרטון או file_id</Label>
               <Input
@@ -280,38 +275,14 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                 required={!isScheduled}
               />
             </div>
-          ) : (
-            <>
-              <div>
-                <Label className="text-sm text-muted-foreground">מזהה ערוץ מקור</Label>
-                <Input
-                  value={fromChatId}
-                  onChange={(e) => setFromChatId(e.target.value)}
-                  placeholder="@channel או -100xxxxxxxxxx"
-                  className="mt-1 bg-secondary border-border font-mono text-sm"
-                  dir="ltr"
-                  required={!isScheduled}
-                />
-              </div>
-              <div>
-                <Label className="text-sm text-muted-foreground">מזהה הודעה (Message ID)</Label>
-                <Input
-                  value={messageId}
-                  onChange={(e) => setMessageId(e.target.value)}
-                  placeholder="12345"
-                  type="number"
-                  className="mt-1 bg-secondary border-border font-mono text-sm"
-                  dir="ltr"
-                  required={!isScheduled}
-                />
-              </div>
-            </>
           )}
 
-          {/* Caption with Translate */}
+          {/* Caption / Message Text */}
           <div>
             <div className="flex items-center justify-between">
-              <Label className="text-sm text-muted-foreground">כיתוב (אופציונלי)</Label>
+              <Label className="text-sm text-muted-foreground">
+                {mode === "send_text" ? "טקסט ההודעה" : "כיתוב (אופציונלי)"}
+              </Label>
               <Button
                 type="button"
                 variant="ghost"
@@ -327,7 +298,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             <Textarea
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              placeholder="כתוב כיתוב לסרטון... תומך ב-HTML"
+              placeholder={mode === "send_text" ? "כתוב את ההודעה שלך... תומך ב-HTML" : "כתוב כיתוב לסרטון... תומך ב-HTML"}
               className="mt-1 bg-secondary border-border min-h-[80px]"
             />
             <p className="text-xs text-muted-foreground mt-1">
