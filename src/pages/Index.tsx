@@ -6,6 +6,7 @@ import { ChannelList } from "@/components/ChannelList";
 import { VideoPipeline } from "@/components/VideoPipeline";
 import { ScheduleView } from "@/components/ScheduleView";
 import { MappingsView } from "@/components/MappingsView";
+import { CatalogView } from "@/components/CatalogView";
 import { SettingsView } from "@/components/SettingsView";
 import { AddChannelDialog } from "@/components/AddChannelDialog";
 import { PublishDialog } from "@/components/PublishDialog";
@@ -72,6 +73,9 @@ const Index = () => {
             )}
             {currentPage === "mappings" && (
               <MappingsView channels={channels} />
+            )}
+            {currentPage === "catalog" && (
+              <CatalogView channels={channels} />
             )}
             {currentPage === "pipeline" && (
               <div className="space-y-6">

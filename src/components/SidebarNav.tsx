@@ -6,7 +6,8 @@ import {
   Settings, 
   Zap,
   Send,
-  Route
+  Route,
+  BookOpen
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ const navItems: { id: PageView; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "דאשבורד", icon: LayoutDashboard },
   { id: "channels", label: "ערוצים", icon: Radio },
   { id: "mappings", label: "מיפויים", icon: Route },
+  { id: "catalog", label: "בוט קטלוג", icon: BookOpen },
   { id: "pipeline", label: "תור עיבוד", icon: GitBranch },
   { id: "schedule", label: "תזמון", icon: Calendar },
   { id: "settings", label: "הגדרות", icon: Settings },

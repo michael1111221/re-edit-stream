@@ -174,6 +174,7 @@ function MappingCard({
   if (mapping.auto_translate) rules.push({ icon: Languages, label: `תרגום ל${mapping.target_language}` });
   if (mapping.add_signature) rules.push({ icon: FileSignature, label: "חתימה" });
   if (mapping.filter_banned_words) rules.push({ icon: ShieldBan, label: "סינון מילים" });
+  if ((mapping as any).filter_buttons) rules.push({ icon: Link2Off, label: "סינון כפתורים" });
 
   return (
     <motion.div
@@ -305,6 +306,7 @@ function EditMappingDialog({
   const [addSignature, setAddSignature] = useState(mapping.add_signature);
   const [signatureText, setSignatureText] = useState(mapping.signature_text || "");
   const [filterBanned, setFilterBanned] = useState(mapping.filter_banned_words);
+  const [filterButtons, setFilterButtons] = useState((mapping as any).filter_buttons ?? false);
   const [buttons, setButtons] = useState<{ text: string; url: string }[]>(
     (mapping.default_buttons as any[]) || []
   );
@@ -361,6 +363,7 @@ function EditMappingDialog({
       add_signature: addSignature,
       signature_text: signatureText,
       filter_banned_words: filterBanned,
+      filter_buttons: filterButtons,
       default_buttons: buttons,
     });
   };
@@ -466,6 +469,15 @@ function EditMappingDialog({
                 placeholder="טקסט חתימה, לדוגמה: 📢 @mychannel"
               />
             )}
+          </div>
+
+          {/* Filter Buttons (ads) */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Link2Off className="w-4 h-4 text-muted-foreground" />
+              <Label>סינון פוסטים עם כפתורים (מודעות)</Label>
+            </div>
+            <Switch checked={filterButtons} onCheckedChange={setFilterButtons} />
           </div>
 
           {/* Banned Words */}
