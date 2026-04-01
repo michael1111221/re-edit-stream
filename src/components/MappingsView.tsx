@@ -363,6 +363,7 @@ function EditMappingDialog({
       add_signature: addSignature,
       signature_text: signatureText,
       filter_banned_words: filterBanned,
+      filter_buttons: filterButtons,
       default_buttons: buttons,
     });
   };
