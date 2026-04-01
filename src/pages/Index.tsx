@@ -48,6 +48,12 @@ const Index = () => {
                 channels={channels}
                 onAddChannel={() => setAddChannelOpen(true)}
                 onToggleStatus={handleToggleStatus}
+                onDeleteChannel={(channel) => {
+                  deleteChannel.mutate(channel.id, {
+                    onSuccess: () => toast({ title: `ערוץ "${channel.name}" נמחק` }),
+                    onError: (err) => toast({ title: "שגיאה במחיקה", description: err.message, variant: "destructive" }),
+                  });
+                }}
               />
             )}
             {currentPage === "mappings" && (
