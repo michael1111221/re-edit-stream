@@ -471,6 +471,15 @@ function EditMappingDialog({
             )}
           </div>
 
+          {/* Filter Buttons (ads) */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Link2Off className="w-4 h-4 text-muted-foreground" />
+              <Label>סינון פוסטים עם כפתורים (מודעות)</Label>
+            </div>
+            <Switch checked={filterButtons} onCheckedChange={setFilterButtons} />
+          </div>
+
           {/* Banned Words */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
