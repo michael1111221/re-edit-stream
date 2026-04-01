@@ -17,7 +17,7 @@ serve(async (req) => {
   const baseUrl = `${TELEGRAM_API}${BOT_TOKEN}`;
 
   try {
-    // Check for scheduled posts that are due
+    // === 1. Process one-time scheduled posts ===
     const now = new Date().toISOString();
     const { data: duePosts, error } = await supabase
       .from("scheduled_posts")
@@ -29,83 +29,146 @@ serve(async (req) => {
 
     if (error) {
       console.error("Error fetching scheduled posts:", error);
-      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
     }
 
-    if (!duePosts || duePosts.length === 0) {
-      return new Response(JSON.stringify({ message: "No posts due", count: 0 }));
-    }
+    if (duePosts && duePosts.length > 0) {
+      console.log(`Processing ${duePosts.length} scheduled posts`);
 
-    console.log(`Processing ${duePosts.length} scheduled posts`);
-
-    for (const post of duePosts) {
-      try {
-        const chatId = post.channel?.handle;
-        if (!chatId) {
-          console.error(`No channel handle for post ${post.id}`);
-          continue;
-        }
-
-        // Get video details if linked
-        let videoData = null;
-        if (post.video_id) {
-          const { data } = await supabase.from("videos").select("*").eq("id", post.video_id).single();
-          videoData = data;
-        }
-
-        // Build request body
-        let body: any = {};
-        let endpoint = "sendMessage";
-
-        if (videoData && videoData.title) {
-          // If we have a video file_id or URL stored, send as video
-          body = {
-            chat_id: chatId,
-            text: `<b>${post.title}</b>`,
-            parse_mode: "HTML",
-          };
-
-          // Parse inline buttons from metadata if stored
-          if (post.metadata && (post.metadata as any).inline_buttons) {
-            body.reply_markup = {
-              inline_keyboard: (post.metadata as any).inline_buttons.map((btn: any) => [
-                { text: btn.text, url: btn.url },
-              ]),
-            };
+      for (const post of duePosts) {
+        try {
+          const chatId = post.channel?.handle;
+          if (!chatId) {
+            console.error(`No channel handle for post ${post.id}`);
+            continue;
           }
-        } else {
-          body = {
+
+          const body: any = {
             chat_id: chatId,
             text: `<b>${post.title}</b>`,
             parse_mode: "HTML",
           };
+
+          const resp = await fetch(`${baseUrl}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+
+          const result = await resp.json();
+
+          if (result.ok) {
+            await supabase
+              .from("scheduled_posts")
+              .update({ published: true })
+              .eq("id", post.id);
+            console.log(`Published post ${post.id} to ${chatId}`);
+          } else {
+            console.error(`Failed to publish post ${post.id}:`, result.description);
+          }
+        } catch (postError) {
+          console.error(`Error processing post ${post.id}:`, postError);
         }
-
-        const resp = await fetch(`${baseUrl}/${endpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        const result = await resp.json();
-
-        if (result.ok) {
-          // Mark as published
-          await supabase
-            .from("scheduled_posts")
-            .update({ published: true })
-            .eq("id", post.id);
-
-          console.log(`Published post ${post.id} to ${chatId}`);
-        } else {
-          console.error(`Failed to publish post ${post.id}:`, result.description);
-        }
-      } catch (postError) {
-        console.error(`Error processing post ${post.id}:`, postError);
       }
     }
 
-    return new Response(JSON.stringify({ message: "Done", processed: duePosts.length }));
+    // === 2. Process recurring schedules ===
+    const { data: recurringSchedules, error: rError } = await supabase
+      .from("recurring_schedules")
+      .select("*")
+      .eq("is_active", true);
+
+    if (rError) {
+      console.error("Error fetching recurring schedules:", rError);
+    }
+
+    if (recurringSchedules && recurringSchedules.length > 0) {
+      // Current time in Israel timezone
+      const nowDate = new Date();
+      const israelTime = new Date(nowDate.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
+      const currentDay = israelTime.getDay(); // 0=Sunday
+      const currentHour = israelTime.getHours();
+      const currentMinute = israelTime.getMinutes();
+      const currentTimeStr = `${String(currentHour).padStart(2, "0")}:${String(currentMinute).padStart(2, "0")}`;
+
+      for (const schedule of recurringSchedules) {
+        try {
+          const days: number[] = schedule.days_of_week || [];
+          const timeOfDay: string = schedule.time_of_day || "12:00";
+
+          // Check if today is a scheduled day
+          if (!days.includes(currentDay)) continue;
+
+          // Check if it's the right time (within 2 minute window)
+          const [schedH, schedM] = timeOfDay.split(":").map(Number);
+          const schedMinutes = schedH * 60 + schedM;
+          const nowMinutes = currentHour * 60 + currentMinute;
+          if (Math.abs(nowMinutes - schedMinutes) > 1) continue;
+
+          // Check if already ran today
+          if (schedule.last_run_at) {
+            const lastRun = new Date(schedule.last_run_at);
+            const lastRunIsrael = new Date(lastRun.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
+            if (
+              lastRunIsrael.getFullYear() === israelTime.getFullYear() &&
+              lastRunIsrael.getMonth() === israelTime.getMonth() &&
+              lastRunIsrael.getDate() === israelTime.getDate()
+            ) {
+              continue; // Already ran today
+            }
+          }
+
+          const channelHandles: string[] = (schedule.channel_handles as any) || [];
+          const caption = schedule.caption || "";
+          const inlineButtons: any[] = (schedule.inline_buttons as any) || [];
+
+          console.log(`Running recurring schedule "${schedule.name}" to ${channelHandles.length} channels`);
+
+          for (const chatId of channelHandles) {
+            try {
+              const body: any = {
+                chat_id: chatId,
+                text: caption || schedule.name,
+                parse_mode: "HTML",
+              };
+
+              if (inlineButtons.length > 0) {
+                body.reply_markup = {
+                  inline_keyboard: inlineButtons
+                    .filter((b: any) => b.text && b.url)
+                    .map((b: any) => [{ text: b.text, url: b.url }]),
+                };
+              }
+
+              const resp = await fetch(`${baseUrl}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+
+              const result = await resp.json();
+              if (result.ok) {
+                console.log(`Recurring: sent to ${chatId}`);
+              } else {
+                console.error(`Recurring: failed for ${chatId}:`, result.description);
+              }
+            } catch (err) {
+              console.error(`Recurring: error sending to ${chatId}:`, err);
+            }
+          }
+
+          // Mark as ran today
+          await supabase
+            .from("recurring_schedules")
+            .update({ last_run_at: new Date().toISOString() })
+            .eq("id", schedule.id);
+
+        } catch (schedError) {
+          console.error(`Error processing recurring schedule ${schedule.id}:`, schedError);
+        }
+      }
+    }
+
+    return new Response(JSON.stringify({ message: "Done", scheduled: duePosts?.length || 0, recurring: recurringSchedules?.length || 0 }));
   } catch (error) {
     console.error("Scheduler error:", error);
     return new Response(
