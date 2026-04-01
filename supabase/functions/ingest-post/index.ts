@@ -144,6 +144,13 @@ serve(async (req) => {
 
     for (const mapping of mappings) {
       try {
+        // Filter posts with buttons (ads)
+        if (has_buttons && mapping.filter_buttons) {
+          console.log(`Skipping post with buttons for mapping ${mapping.id} (filter_buttons enabled)`);
+          results.push({ mapping_id: mapping.id, target: mapping.target_channel?.handle, success: false, error: "Filtered: post has buttons (ad)" });
+          continue;
+        }
+
         let result;
         if (media_type === "media_group" && Array.isArray(media_group)) {
           result = await processMediaGroup(
