@@ -88,6 +88,7 @@ serve(async (req) => {
       media_filename,
       media_mime,
       media_group,
+      has_buttons = false,
     } = body;
 
     if (!source_channel_handle) {
