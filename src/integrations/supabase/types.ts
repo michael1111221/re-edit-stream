@@ -49,6 +49,78 @@ export type Database = {
           },
         ]
       }
+      catalog_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          icon: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_category_channels: {
+        Row: {
+          category_id: string
+          channel_id: string
+          created_at: string
+          id: string
+          sort_order: number
+        }
+        Insert: {
+          category_id: string
+          channel_id: string
+          created_at?: string
+          id?: string
+          sort_order?: number
+        }
+        Update: {
+          category_id?: string
+          channel_id?: string
+          created_at?: string
+          id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_category_channels_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_category_channels_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channel_mappings: {
         Row: {
           add_buttons: boolean
@@ -57,6 +129,7 @@ export type Database = {
           created_at: string
           default_buttons: Json | null
           filter_banned_words: boolean
+          filter_buttons: boolean
           id: string
           is_active: boolean
           remove_links: boolean
@@ -73,6 +146,7 @@ export type Database = {
           created_at?: string
           default_buttons?: Json | null
           filter_banned_words?: boolean
+          filter_buttons?: boolean
           id?: string
           is_active?: boolean
           remove_links?: boolean
@@ -89,6 +163,7 @@ export type Database = {
           created_at?: string
           default_buttons?: Json | null
           filter_banned_words?: boolean
+          filter_buttons?: boolean
           id?: string
           is_active?: boolean
           remove_links?: boolean
