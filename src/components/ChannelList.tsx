@@ -42,7 +42,7 @@ export function ChannelList({ channels, onAddChannel, onToggleStatus, onDeleteCh
           </div>
           {sourceChannels.length === 0 && <div className="text-sm text-muted-foreground text-center py-4">אין ערוצי מקור</div>}
           {sourceChannels.map((channel, i) => (
-            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} />
+            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} onDelete={onDeleteChannel} />
           ))}
         </div>
 
@@ -53,7 +53,7 @@ export function ChannelList({ channels, onAddChannel, onToggleStatus, onDeleteCh
           </div>
           {targetChannels.length === 0 && <div className="text-sm text-muted-foreground text-center py-4">אין ערוצי יעד</div>}
           {targetChannels.map((channel, i) => (
-            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} />
+            <ChannelCard key={channel.id} channel={channel} index={i} onToggleStatus={onToggleStatus} onDelete={onDeleteChannel} />
           ))}
         </div>
       </div>
