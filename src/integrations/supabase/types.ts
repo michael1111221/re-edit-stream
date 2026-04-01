@@ -229,6 +229,78 @@ export type Database = {
         }
         Relationships: []
       }
+      post_templates: {
+        Row: {
+          caption: string
+          channel_handles: Json
+          created_at: string
+          id: string
+          inline_buttons: Json
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          caption?: string
+          channel_handles?: Json
+          created_at?: string
+          id?: string
+          inline_buttons?: Json
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          caption?: string
+          channel_handles?: Json
+          created_at?: string
+          id?: string
+          inline_buttons?: Json
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      recurring_schedules: {
+        Row: {
+          caption: string
+          channel_handles: Json
+          created_at: string
+          days_of_week: number[]
+          id: string
+          inline_buttons: Json
+          is_active: boolean
+          last_run_at: string | null
+          name: string
+          time_of_day: string
+          updated_at: string
+        }
+        Insert: {
+          caption?: string
+          channel_handles?: Json
+          created_at?: string
+          days_of_week?: number[]
+          id?: string
+          inline_buttons?: Json
+          is_active?: boolean
+          last_run_at?: string | null
+          name: string
+          time_of_day?: string
+          updated_at?: string
+        }
+        Update: {
+          caption?: string
+          channel_handles?: Json
+          created_at?: string
+          days_of_week?: number[]
+          id?: string
+          inline_buttons?: Json
+          is_active?: boolean
+          last_run_at?: string | null
+          name?: string
+          time_of_day?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       scheduled_posts: {
         Row: {
           channel_id: string | null
