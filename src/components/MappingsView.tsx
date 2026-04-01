@@ -174,6 +174,7 @@ function MappingCard({
   if (mapping.auto_translate) rules.push({ icon: Languages, label: `תרגום ל${mapping.target_language}` });
   if (mapping.add_signature) rules.push({ icon: FileSignature, label: "חתימה" });
   if (mapping.filter_banned_words) rules.push({ icon: ShieldBan, label: "סינון מילים" });
+  if ((mapping as any).filter_buttons) rules.push({ icon: Link2Off, label: "סינון כפתורים" });
 
   return (
     <motion.div
