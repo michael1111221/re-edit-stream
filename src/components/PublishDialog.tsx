@@ -10,13 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
   PopoverContent,
@@ -41,22 +35,33 @@ interface PublishDialogProps {
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [targetChannelId, setTargetChannelId] = useState("");
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [caption, setCaption] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
 
-  // Scheduling
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDate, setScheduleDate] = useState<Date>();
   const [scheduleTime, setScheduleTime] = useState("12:00");
-
-  // Inline buttons
   const [inlineButtons, setInlineButtons] = useState<InlineButton[]>([]);
 
   const targetChannels = channels.filter(c => c.type === "target" && c.status === "active");
+
+  const toggleChannel = (handle: string) => {
+    setSelectedChannels(prev =>
+      prev.includes(handle) ? prev.filter(h => h !== handle) : [...prev, handle]
+    );
+  };
+
+  const selectAll = () => {
+    if (selectedChannels.length === targetChannels.length) {
+      setSelectedChannels([]);
+    } else {
+      setSelectedChannels(targetChannels.map(c => c.handle));
+    }
+  };
 
   const addButton = () => setInlineButtons([...inlineButtons, { text: "", url: "" }]);
   const removeButton = (index: number) => setInlineButtons(inlineButtons.filter((_, i) => i !== index));
@@ -69,19 +74,13 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const maxSize = 50 * 1024 * 1024; // 50MB Telegram limit
-    if (file.size > maxSize) {
+    if (file.size > 50 * 1024 * 1024) {
       toast({ title: "הקובץ גדול מדי", description: "מקסימום 50MB", variant: "destructive" });
       return;
     }
-
     setAttachedFile(file);
-
-    // Create preview for images
     if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
-      setFilePreview(url);
+      setFilePreview(URL.createObjectURL(file));
     } else {
       setFilePreview(null);
     }
@@ -89,10 +88,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
 
   const removeFile = () => {
     setAttachedFile(null);
-    if (filePreview) {
-      URL.revokeObjectURL(filePreview);
-      setFilePreview(null);
-    }
+    if (filePreview) { URL.revokeObjectURL(filePreview); setFilePreview(null); }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -103,10 +99,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   };
 
   const handleTranslate = async () => {
-    if (!caption.trim()) {
-      toast({ title: "אין טקסט לתרגום", variant: "destructive" });
-      return;
-    }
+    if (!caption.trim()) return;
     setIsTranslating(true);
     try {
       const { data, error } = await supabase.functions.invoke("translate-caption", {
@@ -124,14 +117,36 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
   };
 
+  const sendToChannel = async (channelHandle: string, validButtons: InlineButton[]) => {
+    if (attachedFile) {
+      const fileType = getFileType(attachedFile);
+      const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
+      const formData = new FormData();
+      formData.append("action", actionMap[fileType]);
+      formData.append("chat_id", channelHandle);
+      formData.append("file", attachedFile);
+      if (caption.trim()) formData.append("caption", caption);
+      if (validButtons.length > 0) formData.append("inline_buttons", JSON.stringify(validButtons));
+
+      const { data, error } = await supabase.functions.invoke("telegram-bot", { body: formData });
+      if (error) throw new Error(error.message);
+      return data;
+    } else {
+      return await sendMessageToChannel(
+        channelHandle,
+        caption,
+        validButtons.length > 0 ? validButtons : undefined
+      );
+    }
+  };
+
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!targetChannelId) {
-      toast({ title: "בחר ערוץ יעד", variant: "destructive" });
+    if (selectedChannels.length === 0) {
+      toast({ title: "בחר לפחות ערוץ יעד אחד", variant: "destructive" });
       return;
     }
-
     if (!caption.trim() && !attachedFile) {
       toast({ title: "כתוב הודעה או צרף קובץ", variant: "destructive" });
       return;
@@ -152,17 +167,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         toast({ title: "התאריך חייב להיות בעתיד", variant: "destructive" });
         return;
       }
-      const targetChannel = channels.find(c => c.handle === targetChannelId);
+
       setIsSending(true);
       try {
-        const { error } = await supabase.from("scheduled_posts").insert({
-          title: caption || "פרסום מתוזמן",
-          channel_id: targetChannel?.id || null,
-          scheduled_for: scheduledFor.toISOString(),
-          video_id: null,
+        const inserts = selectedChannels.map(handle => {
+          const ch = channels.find(c => c.handle === handle);
+          return {
+            title: caption || "פרסום מתוזמן",
+            channel_id: ch?.id || null,
+            scheduled_for: scheduledFor.toISOString(),
+            video_id: null,
+          };
         });
+        const { error } = await supabase.from("scheduled_posts").insert(inserts);
         if (error) throw error;
-        toast({ title: "✅ פרסום תוזמן בהצלחה!" });
+        toast({ title: `✅ תוזמן ל-${selectedChannels.length} ערוצים!` });
         onOpenChange(false);
         onScheduled?.();
         resetForm();
@@ -174,59 +193,40 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       return;
     }
 
-    // Publish now
+    // Publish now to all selected channels
     setIsSending(true);
-    try {
-      let result;
+    let successCount = 0;
+    let failCount = 0;
 
-      if (attachedFile) {
-        // Send file via multipart form data
-        const fileType = getFileType(attachedFile);
-        const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
-
-        const formData = new FormData();
-        formData.append("action", actionMap[fileType]);
-        formData.append("chat_id", targetChannelId);
-        formData.append("file", attachedFile);
-        if (caption.trim()) formData.append("caption", caption);
-        if (validButtons.length > 0) formData.append("inline_buttons", JSON.stringify(validButtons));
-
-        const { data, error } = await supabase.functions.invoke("telegram-bot", {
-          body: formData,
-        });
-
-        if (error) throw new Error(error.message);
-        result = data;
-      } else {
-        // Send text only
-        result = await sendMessageToChannel(
-          targetChannelId,
-          caption,
-          validButtons.length > 0 ? validButtons : undefined
-        );
+    for (const handle of selectedChannels) {
+      try {
+        const result = await sendToChannel(handle, validButtons);
+        if (result.ok) {
+          successCount++;
+        } else {
+          failCount++;
+          console.error(`Failed to publish to ${handle}:`, result.description);
+        }
+      } catch (err) {
+        failCount++;
+        console.error(`Error publishing to ${handle}:`, err);
       }
+    }
 
-      if (result.ok) {
-        toast({ title: "✅ פורסם בהצלחה!" });
-        onOpenChange(false);
-        resetForm();
-      } else {
-        toast({
-          title: "שגיאה בפרסום",
-          description: result.description || "שגיאה לא ידועה",
-          variant: "destructive",
-        });
-      }
-    } catch (err: any) {
-      toast({ title: "שגיאה", description: err.message || "שגיאת חיבור", variant: "destructive" });
-    } finally {
-      setIsSending(false);
+    setIsSending(false);
+
+    if (successCount > 0) {
+      toast({ title: `✅ פורסם ל-${successCount} ערוצים${failCount > 0 ? ` (${failCount} נכשלו)` : ""}` });
+      onOpenChange(false);
+      resetForm();
+    } else {
+      toast({ title: "שגיאה בפרסום", description: "לא הצלחנו לפרסם לאף ערוץ", variant: "destructive" });
     }
   };
 
   const resetForm = () => {
     setCaption("");
-    setTargetChannelId("");
+    setSelectedChannels([]);
     removeFile();
     setIsScheduled(false);
     setScheduleDate(undefined);
@@ -245,23 +245,46 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         </DialogHeader>
 
         <form onSubmit={handlePublish} className="space-y-4">
-          {/* Target Channel */}
+          {/* Target Channels - Multi Select */}
           <div>
-            <Label className="text-sm text-muted-foreground">ערוץ יעד</Label>
-            <Select value={targetChannelId} onValueChange={setTargetChannelId}>
-              <SelectTrigger className="mt-1 bg-secondary border-border">
-                <SelectValue placeholder="בחר ערוץ יעד..." />
-              </SelectTrigger>
-              <SelectContent className="bg-card border-border">
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-sm text-muted-foreground">ערוצי יעד</Label>
+              {targetChannels.length > 1 && (
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {selectedChannels.length === targetChannels.length ? "בטל הכל" : "בחר הכל"}
+                </button>
+              )}
+            </div>
+            {targetChannels.length === 0 ? (
+              <p className="text-xs text-warning">אין ערוצי יעד פעילים. הוסף ערוץ יעד קודם.</p>
+            ) : (
+              <div className="space-y-1.5 rounded-md border border-border bg-secondary p-2 max-h-32 overflow-y-auto">
                 {targetChannels.map((ch) => (
-                  <SelectItem key={ch.id} value={ch.handle}>
-                    {ch.name} ({ch.handle})
-                  </SelectItem>
+                  <label
+                    key={ch.id}
+                    className={cn(
+                      "flex items-center gap-2 rounded px-2 py-1.5 cursor-pointer transition-colors hover:bg-muted",
+                      selectedChannels.includes(ch.handle) && "bg-muted"
+                    )}
+                  >
+                    <Checkbox
+                      checked={selectedChannels.includes(ch.handle)}
+                      onCheckedChange={() => toggleChannel(ch.handle)}
+                    />
+                    <span className="text-sm text-foreground">{ch.name}</span>
+                    <span className="text-xs text-muted-foreground mr-auto" dir="ltr">{ch.handle}</span>
+                  </label>
                 ))}
-              </SelectContent>
-            </Select>
-            {targetChannels.length === 0 && (
-              <p className="text-xs text-warning mt-1">אין ערוצי יעד פעילים. הוסף ערוץ יעד קודם.</p>
+              </div>
+            )}
+            {selectedChannels.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                נבחרו {selectedChannels.length} ערוצים
+              </p>
             )}
           </div>
 
@@ -272,9 +295,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                 {attachedFile ? "כיתוב (אופציונלי)" : "טקסט ההודעה"}
               </Label>
               <Button
-                type="button"
-                variant="ghost"
-                size="sm"
+                type="button" variant="ghost" size="sm"
                 onClick={handleTranslate}
                 disabled={isTranslating || !caption.trim()}
                 className="h-7 text-xs gap-1 text-accent hover:text-accent"
@@ -300,58 +321,33 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
               <ImagePlus className="w-3.5 h-3.5" />
               צרף תמונה או סרטון
             </Label>
-
             {attachedFile ? (
               <div className="relative rounded-lg border border-border bg-secondary p-3">
-                <button
-                  type="button"
-                  onClick={removeFile}
-                  className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10"
-                >
+                <button type="button" onClick={removeFile}
+                  className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
                   <X className="w-3 h-3" />
                 </button>
-
                 {filePreview ? (
-                  <img
-                    src={filePreview}
-                    alt="תצוגה מקדימה"
-                    className="w-full max-h-40 object-contain rounded"
-                  />
+                  <img src={filePreview} alt="תצוגה מקדימה" className="w-full max-h-40 object-contain rounded" />
                 ) : (
                   <div className="flex items-center gap-3 text-sm text-foreground">
-                    {attachedFile.type.startsWith("video/") ? (
-                      <FileVideo className="w-8 h-8 text-primary" />
-                    ) : (
-                      <FileImage className="w-8 h-8 text-primary" />
-                    )}
+                    {attachedFile.type.startsWith("video/") ? <FileVideo className="w-8 h-8 text-primary" /> : <FileImage className="w-8 h-8 text-primary" />}
                     <div>
                       <p className="font-medium">{attachedFile.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {(attachedFile.size / 1024 / 1024).toFixed(1)} MB
-                      </p>
+                      <p className="text-xs text-muted-foreground">{(attachedFile.size / 1024 / 1024).toFixed(1)} MB</p>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 hover:bg-secondary/50 transition-colors"
-              >
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 hover:bg-secondary/50 transition-colors">
                 <ImagePlus className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-sm text-muted-foreground">לחץ לבחירת תמונה או סרטון</p>
                 <p className="text-xs text-muted-foreground mt-1">JPG, PNG, MP4, MOV • עד 50MB</p>
               </button>
             )}
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
+            <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFileSelect} className="hidden" />
           </div>
 
           {/* Inline Buttons */}
@@ -362,25 +358,15 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                 כפתורים לחיצים
               </Label>
               <Button type="button" variant="outline" size="sm" onClick={addButton} className="h-7 text-xs gap-1">
-                <Plus className="w-3 h-3" />
-                הוסף כפתור
+                <Plus className="w-3 h-3" /> הוסף כפתור
               </Button>
             </div>
             {inlineButtons.map((btn, i) => (
               <div key={i} className="flex gap-2 items-center">
-                <Input
-                  value={btn.text}
-                  onChange={(e) => updateButton(i, "text", e.target.value)}
-                  placeholder="טקסט הכפתור"
-                  className="bg-secondary border-border text-sm flex-1"
-                />
-                <Input
-                  value={btn.url}
-                  onChange={(e) => updateButton(i, "url", e.target.value)}
-                  placeholder="https://..."
-                  className="bg-secondary border-border text-sm flex-1 font-mono"
-                  dir="ltr"
-                />
+                <Input value={btn.text} onChange={(e) => updateButton(i, "text", e.target.value)}
+                  placeholder="טקסט הכפתור" className="bg-secondary border-border text-sm flex-1" />
+                <Input value={btn.url} onChange={(e) => updateButton(i, "url", e.target.value)}
+                  placeholder="https://..." className="bg-secondary border-border text-sm flex-1 font-mono" dir="ltr" />
                 <button type="button" onClick={() => removeButton(i)} className="text-muted-foreground hover:text-destructive p-1">
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -392,68 +378,46 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           <div className="rounded-md border border-border p-3 space-y-3">
             <div className="flex items-center justify-between">
               <Label className="text-sm text-foreground flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-warning" />
-                תזמן לפרסום
+                <Clock className="w-4 h-4 text-warning" /> תזמן לפרסום
               </Label>
               <Switch checked={isScheduled} onCheckedChange={setIsScheduled} />
             </div>
-
             {isScheduled && (
               <div className="flex gap-3">
                 <div className="flex-1">
                   <Label className="text-xs text-muted-foreground">תאריך</Label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full mt-1 justify-start text-right font-normal bg-secondary border-border",
-                          !scheduleDate && "text-muted-foreground"
-                        )}
-                      >
+                      <Button variant="outline" className={cn(
+                        "w-full mt-1 justify-start text-right font-normal bg-secondary border-border",
+                        !scheduleDate && "text-muted-foreground"
+                      )}>
                         <CalendarIcon className="ml-2 h-4 w-4" />
                         {scheduleDate ? format(scheduleDate, "dd/MM/yyyy") : "בחר תאריך"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 bg-card border-border" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={scheduleDate}
-                        onSelect={setScheduleDate}
-                        disabled={(date) => date < new Date()}
-                        className={cn("p-3 pointer-events-auto")}
-                      />
+                      <Calendar mode="single" selected={scheduleDate} onSelect={setScheduleDate}
+                        disabled={(date) => date < new Date()} className={cn("p-3 pointer-events-auto")} />
                     </PopoverContent>
                   </Popover>
                 </div>
                 <div className="w-28">
                   <Label className="text-xs text-muted-foreground">שעה</Label>
-                  <Input
-                    type="time"
-                    value={scheduleTime}
-                    onChange={(e) => setScheduleTime(e.target.value)}
-                    className="mt-1 bg-secondary border-border"
-                    dir="ltr"
-                  />
+                  <Input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)}
+                    className="mt-1 bg-secondary border-border" dir="ltr" />
                 </div>
               </div>
             )}
           </div>
 
-          <Button
-            type="submit"
-            className="w-full gradient-primary text-primary-foreground gap-2"
-            disabled={isSending}
-          >
+          <Button type="submit" className="w-full gradient-primary text-primary-foreground gap-2" disabled={isSending}>
             {isSending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {isScheduled ? "מתזמן..." : "שולח..."}
-              </>
+              <><Loader2 className="w-4 h-4 animate-spin" />{isScheduled ? "מתזמן..." : "שולח..."}</>
             ) : (
               <>
                 {isScheduled ? <Clock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-                {isScheduled ? "תזמן פרסום" : "פרסם עכשיו"}
+                {isScheduled ? "תזמן פרסום" : selectedChannels.length > 1 ? `פרסם ל-${selectedChannels.length} ערוצים` : "פרסם עכשיו"}
               </>
             )}
           </Button>
