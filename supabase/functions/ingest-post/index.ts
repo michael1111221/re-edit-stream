@@ -75,6 +75,38 @@ serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const baseUrl = `${TELEGRAM_API}${BOT_TOKEN}`;
 
+  const listSourceChannels = async () => {
+    const { data, error } = await supabase
+      .from("channels")
+      .select("handle")
+      .eq("type", "source")
+      .eq("status", "active");
+
+    if (error) {
+      return new Response(
+        JSON.stringify({ error: error.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({ source_channels: (data ?? []).map((channel) => channel.handle).filter(Boolean) }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  };
+
+  if (req.method === "GET") {
+    const url = new URL(req.url);
+    if (url.searchParams.get("action") === "list_source_channels") {
+      return await listSourceChannels();
+    }
+
+    return new Response(
+      JSON.stringify({ error: "Unsupported GET request" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   try {
     const body = await req.json();
     const {
