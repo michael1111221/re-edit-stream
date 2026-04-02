@@ -139,7 +139,9 @@ async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
 
 
 def get_channel_handle(chat) -> str:
-    """Extract @username or chat_id string from a chat entity."""
+    """Extract configured handle, @username or numeric chat_id from a chat entity."""
+    if chat.id in RESOLVED_CHANNEL_HANDLES:
+        return RESOLVED_CHANNEL_HANDLES[chat.id]
     if hasattr(chat, "username") and chat.username:
         return f"@{chat.username}"
     return str(chat.id)
