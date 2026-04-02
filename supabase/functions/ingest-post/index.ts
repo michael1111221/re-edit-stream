@@ -148,7 +148,7 @@ serve(async (req) => {
 
     // Find source channel
     const rawSourceHandle = String(source_channel_handle).trim();
-    const rawAliases = Array.isArray(source_channel_aliases) ? source_channel_aliases : [];
+    const rawAliases = Array.isArray(source_channel_aliases) ? source_channel_aliases.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
     const candidateInputs = [rawSourceHandle, ...rawAliases.map((value) => String(value || "").trim())]
       .filter(Boolean);
 
