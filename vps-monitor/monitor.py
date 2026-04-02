@@ -473,8 +473,8 @@ async def get_channel_handle(client: TelegramClient, chat, chat_id: int | None =
                 entity = await resolve_channel_entity(client, configured_handle)
                 remember_resolved_channel(configured_handle, entity)
 
-                chat_title = (getattr(chat, "title", None) or "").strip()
-                entity_title = (getattr(entity, "title", None) or "").strip()
+                chat_title = normalize_channel_title(getattr(chat, "title", None) or "")
+                entity_title = normalize_channel_title(getattr(entity, "title", None) or "")
                 matched_by_title = bool(chat_title and entity_title and chat_title == entity_title)
 
                 if current_ids & get_entity_lookup_ids(entity) or matched_by_title:
