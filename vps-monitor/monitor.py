@@ -240,6 +240,7 @@ async def main():
             try:
                 entity = await client.get_entity(handle)
                 channel_ids.add(entity.id)
+                RESOLVED_CHANNEL_HANDLES[entity.id] = handle
                 log.info(f"Monitoring: {handle} (ID: {entity.id})")
             except Exception as e:
                 log.warning(f"Cannot resolve {handle}: {e}")
