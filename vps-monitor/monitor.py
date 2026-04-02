@@ -62,6 +62,7 @@ INGEST_URL = os.environ.get("INGEST_URL", "")
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
 SESSION_NAME = os.environ.get("SESSION_NAME", "monitor_session")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+BOT_UPLOAD_CHAT = os.environ.get("BOT_UPLOAD_CHAT", "").strip()
 
 # Channels to monitor — set via MONITOR_CHANNELS env var as comma-separated handles
 MONITOR_CHANNELS = [
@@ -344,25 +345,16 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
 
 async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str) -> str | None:
     """Upload a file to Telegram Bot API and return the file_id.
-    Sends the file to Saved Messages (the bot's own chat) to obtain a file_id,
-    then deletes the message."""
+    Sends the file to a temporary bot-accessible chat, then deletes the message."""
     if not BOT_TOKEN:
         log.warning("BOT_TOKEN not set, cannot upload via Bot API")
         return None
 
-    bot_api = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-    # Get bot's own chat_id
-    try:
-        async with http_session.get(f"{bot_api}/getMe") as resp:
-            me_data = await resp.json()
-            if not me_data.get("ok"):
-                log.error(f"Bot getMe failed: {me_data}")
-                return None
-            bot_id = me_data["result"]["id"]
-    except Exception as e:
-        log.error(f"Failed to get bot info: {e}")
+    if not BOT_UPLOAD_CHAT:
+        log.warning("BOT_UPLOAD_CHAT not set, cannot upload via Bot API")
         return None
+
+    bot_api = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
     # Upload the file
     method_map = {
@@ -374,7 +366,7 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
     method, field = method_map.get(media_type, ("sendDocument", "document"))
 
     form = aiohttp.FormData()
-    form.add_field("chat_id", str(bot_id))
+    form.add_field("chat_id", BOT_UPLOAD_CHAT)
     form.add_field(field, media_bytes, filename=filename, content_type=mime_type)
 
     try:
@@ -400,7 +392,10 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
 
             # Delete the temporary message
             try:
-                await http_session.post(f"{bot_api}/deleteMessage", json={"chat_id": bot_id, "message_id": msg_id})
+                await http_session.post(
+                    f"{bot_api}/deleteMessage",
+                    json={"chat_id": BOT_UPLOAD_CHAT, "message_id": msg_id},
+                )
             except Exception:
                 pass
 
@@ -446,10 +441,10 @@ def get_channel_aliases(chat, chat_id: int | None = None) -> list[str]:
     return aliases
 
 
-async def fetch_source_channels(http_session: aiohttp.ClientSession) -> list[str]:
-    """Fetch configured source channel handles from the backend."""
+async def fetch_monitor_config(http_session: aiohttp.ClientSession) -> tuple[list[str], str]:
+    """Fetch configured source channel handles and temp upload chat from the backend."""
     if not INGEST_URL or not INGEST_API_KEY:
-        return []
+        return [], ""
 
     try:
         async with http_session.get(
@@ -461,13 +456,14 @@ async def fetch_source_channels(http_session: aiohttp.ClientSession) -> list[str
             body = await resp.json(content_type=None)
             if resp.status != 200:
                 log.warning("Could not load source channels from backend: %s", body)
-                return []
+                return [], ""
 
             channels = body.get("source_channels") or []
-            return [str(channel).strip() for channel in channels if str(channel).strip()]
+            upload_chat = str(body.get("bot_upload_chat") or "").strip()
+            return [str(channel).strip() for channel in channels if str(channel).strip()], upload_chat
     except Exception as e:
         log.warning(f"Failed to fetch source channels from backend: {e}")
-        return []
+        return [], ""
 
 
 def merge_unique_channels(*channel_lists: list[str]) -> list[str]:
@@ -654,6 +650,8 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
 # ── Main ────────────────────────────────────────────────────────────
 
 async def main():
+    global BOT_UPLOAD_CHAT
+
     if not API_ID or not API_HASH:
         log.error("Set TELEGRAM_API_ID and TELEGRAM_API_HASH environment variables")
         return
@@ -669,9 +667,12 @@ async def main():
 
     http_session = aiohttp.ClientSession()
 
-    backend_channels = await fetch_source_channels(http_session)
+    backend_channels, backend_upload_chat = await fetch_monitor_config(http_session)
     configured_channels = merge_unique_channels(MONITOR_CHANNELS, backend_channels)
     MONITOR_CHANNELS[:] = configured_channels
+    if not BOT_UPLOAD_CHAT and backend_upload_chat:
+        BOT_UPLOAD_CHAT = backend_upload_chat
+        log.info(f"Using temporary upload chat: {BOT_UPLOAD_CHAT}")
 
     # Resolve monitored channels
     channel_ids = set()
