@@ -58,6 +58,7 @@ PHONE = os.environ.get("TELEGRAM_PHONE", "")
 INGEST_URL = os.environ.get("INGEST_URL", "")
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
 SESSION_NAME = os.environ.get("SESSION_NAME", "monitor_session")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 # Channels to monitor — set via MONITOR_CHANNELS env var as comma-separated handles
 MONITOR_CHANNELS = [
@@ -82,6 +83,9 @@ log = logging.getLogger("monitor")
 # { grouped_id: { "messages": [...], "handle": str, "timer": asyncio.TimerHandle } }
 media_group_buffer: dict[int, dict] = {}
 media_group_lock = asyncio.Lock()
+
+# Max file size to send as base64 (5MB). Larger files go through Bot API upload.
+MAX_BASE64_SIZE = 5 * 1024 * 1024
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -120,6 +124,76 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
         return None
 
 
+async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str) -> str | None:
+    """Upload a file to Telegram Bot API and return the file_id.
+    Sends the file to Saved Messages (the bot's own chat) to obtain a file_id,
+    then deletes the message."""
+    if not BOT_TOKEN:
+        log.warning("BOT_TOKEN not set, cannot upload via Bot API")
+        return None
+
+    bot_api = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+    # Get bot's own chat_id
+    try:
+        async with http_session.get(f"{bot_api}/getMe") as resp:
+            me_data = await resp.json()
+            if not me_data.get("ok"):
+                log.error(f"Bot getMe failed: {me_data}")
+                return None
+            bot_id = me_data["result"]["id"]
+    except Exception as e:
+        log.error(f"Failed to get bot info: {e}")
+        return None
+
+    # Upload the file
+    method_map = {
+        "video": ("sendVideo", "video"),
+        "photo": ("sendPhoto", "photo"),
+        "document": ("sendDocument", "document"),
+        "animation": ("sendAnimation", "animation"),
+    }
+    method, field = method_map.get(media_type, ("sendDocument", "document"))
+
+    form = aiohttp.FormData()
+    form.add_field("chat_id", str(bot_id))
+    form.add_field(field, media_bytes, filename=filename, content_type=mime_type)
+
+    try:
+        async with http_session.post(f"{bot_api}/{method}", data=form, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            result = await resp.json()
+            if not result.get("ok"):
+                log.error(f"Bot API upload failed: {result.get('description')}")
+                return None
+
+            msg_result = result["result"]
+            msg_id = msg_result["message_id"]
+
+            # Extract file_id from the result
+            file_id = None
+            if media_type == "video" and msg_result.get("video"):
+                file_id = msg_result["video"]["file_id"]
+            elif media_type == "photo" and msg_result.get("photo"):
+                file_id = msg_result["photo"][-1]["file_id"]
+            elif media_type == "animation" and msg_result.get("animation"):
+                file_id = msg_result["animation"]["file_id"]
+            elif msg_result.get("document"):
+                file_id = msg_result["document"]["file_id"]
+
+            # Delete the temporary message
+            try:
+                await http_session.post(f"{bot_api}/deleteMessage", json={"chat_id": bot_id, "message_id": msg_id})
+            except Exception:
+                pass
+
+            if file_id:
+                log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
+            return file_id
+    except Exception as e:
+        log.error(f"Failed to upload via Bot API: {e}")
+        return None
+
+
 async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
     """POST the message payload to the ingest-post edge function."""
     headers = {
@@ -147,7 +221,35 @@ def get_channel_handle(chat) -> str:
     return str(chat.id)
 
 
-async def prepare_media_item(client: TelegramClient, message) -> dict | None:
+async def get_media_payload(client: TelegramClient, http_session: aiohttp.ClientSession, message, media_type: str) -> dict:
+    """Download media and return payload fields. Uses Bot API upload for large files."""
+    result = {}
+    if media_type == "text" or not message.file:
+        return result
+
+    media_bytes = await download_and_get_bytes(client, message)
+    if not media_bytes:
+        return result
+
+    filename = message.file.name or f"media.{message.file.ext or 'bin'}"
+    mime_type = message.file.mime_type or "application/octet-stream"
+
+    if len(media_bytes) <= MAX_BASE64_SIZE:
+        result["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
+        result["media_filename"] = filename
+        result["media_mime"] = mime_type
+    else:
+        log.info(f"Large file ({len(media_bytes)} bytes), uploading via Bot API...")
+        file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
+        if file_id:
+            result["media_file_id"] = file_id
+        else:
+            log.warning(f"Bot API upload failed, skipping media ({len(media_bytes)} bytes)")
+
+    return result
+
+
+async def prepare_media_item(client: TelegramClient, http_session: aiohttp.ClientSession, message) -> dict | None:
     """Prepare a single media item dict for the media_group payload."""
     media_type = classify_media(message)
     if media_type == "text":
@@ -158,15 +260,11 @@ async def prepare_media_item(client: TelegramClient, message) -> dict | None:
         "text": message.text or message.message or "",
     }
 
-    if message.file:
-        media_bytes = await download_and_get_bytes(client, message)
-        if media_bytes and len(media_bytes) < 10 * 1024 * 1024:
-            item["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
-            item["media_filename"] = message.file.name or f"media.{message.file.ext or 'bin'}"
-            item["media_mime"] = message.file.mime_type or "application/octet-stream"
-        elif media_bytes:
-            log.warning(f"Media too large ({len(media_bytes)} bytes), skipping")
-            return None
+    media_payload = await get_media_payload(client, http_session, message, media_type)
+    item.update(media_payload)
+
+    if not media_payload:
+        return None
 
     return item
 
@@ -191,7 +289,7 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
     items = []
     group_caption = ""
     for msg in messages:
-        item = await prepare_media_item(client, msg)
+        item = await prepare_media_item(client, http_session, msg)
         if item:
             # Only the first item should carry the caption
             if not group_caption and item.get("text"):
@@ -202,17 +300,17 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
         log.warning(f"No valid media items in group {group_id}")
         return
 
-        # Check if any message in the group has inline buttons
-        has_buttons = any(isinstance(m.reply_markup, ReplyInlineMarkup) for m in messages)
+    # Check if any message in the group has inline buttons
+    has_buttons = any(isinstance(m.reply_markup, ReplyInlineMarkup) for m in messages)
 
-        payload = {
-            "source_channel_handle": handle,
-            "message_id": messages[0].id,
-            "text": group_caption,
-            "media_type": "media_group",
-            "media_group": items,
-            "has_buttons": has_buttons,
-        }
+    payload = {
+        "source_channel_handle": handle,
+        "message_id": messages[0].id,
+        "text": group_caption,
+        "media_type": "media_group",
+        "media_group": items,
+        "has_buttons": has_buttons,
+    }
 
     await send_to_ingest(http_session, payload)
 
@@ -306,14 +404,8 @@ async def main():
         }
 
         if media_type != "text" and message.file:
-            media_bytes = await download_and_get_bytes(client, message)
-            if media_bytes:
-                if len(media_bytes) < 10 * 1024 * 1024:
-                    payload["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
-                    payload["media_filename"] = message.file.name or f"media.{message.file.ext or 'bin'}"
-                    payload["media_mime"] = message.file.mime_type or "application/octet-stream"
-                else:
-                    log.warning(f"Media too large ({len(media_bytes)} bytes), skipping media attachment")
+            media_payload = await get_media_payload(client, http_session, message, media_type)
+            payload.update(media_payload)
 
         await send_to_ingest(http_session, payload)
 
