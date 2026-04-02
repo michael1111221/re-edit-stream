@@ -87,8 +87,9 @@ log = logging.getLogger("monitor")
 media_group_buffer: dict[int, dict] = {}
 media_group_lock = asyncio.Lock()
 
-# Max file size to send as base64 (5MB). Larger files go through Bot API upload.
-MAX_BASE64_SIZE = 5 * 1024 * 1024
+# Max file size to send as base64. Keep this low so the backend does not hit
+# compute limits while processing multipart uploads.
+MAX_BASE64_SIZE = int(os.environ.get("MAX_BASE64_SIZE", str(1024 * 1024)))
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -294,6 +295,45 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
         return None
 
 
+async def fetch_source_channels(http_session: aiohttp.ClientSession) -> list[str]:
+    """Fetch configured source channel handles from the backend."""
+    if not INGEST_URL or not INGEST_API_KEY:
+        return []
+
+    try:
+        async with http_session.get(
+            INGEST_URL,
+            params={"action": "list_source_channels"},
+            headers={"Authorization": f"Bearer {INGEST_API_KEY}"},
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
+            body = await resp.json(content_type=None)
+            if resp.status != 200:
+                log.warning("Could not load source channels from backend: %s", body)
+                return []
+
+            channels = body.get("source_channels") or []
+            return [str(channel).strip() for channel in channels if str(channel).strip()]
+    except Exception as e:
+        log.warning(f"Failed to fetch source channels from backend: {e}")
+        return []
+
+
+def merge_unique_channels(*channel_lists: list[str]) -> list[str]:
+    """Merge channel lists while preserving order and removing duplicates."""
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    for channel_list in channel_lists:
+        for channel in channel_list:
+            normalized = channel.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                merged.append(normalized)
+
+    return merged
+
+
 async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
     """POST the message payload to the ingest-post edge function."""
     headers = {
@@ -363,17 +403,23 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
     filename = message.file.name or f"media.{message.file.ext or 'bin'}"
     mime_type = message.file.mime_type or "application/octet-stream"
 
+    if BOT_TOKEN:
+        file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
+        if file_id:
+            result["media_file_id"] = file_id
+            result["media_filename"] = filename
+            result["media_mime"] = mime_type
+            return result
+
+        log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
+
     if len(media_bytes) <= MAX_BASE64_SIZE:
+        log.info(f"Sending media as base64 fallback ({len(media_bytes)} bytes)")
         result["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
         result["media_filename"] = filename
         result["media_mime"] = mime_type
     else:
-        log.info(f"Large file ({len(media_bytes)} bytes), uploading via Bot API...")
-        file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
-        if file_id:
-            result["media_file_id"] = file_id
-        else:
-            log.warning(f"Bot API upload failed, skipping media ({len(media_bytes)} bytes)")
+        log.warning(f"Media too large for base64 fallback ({len(media_bytes)} bytes), skipping media attachment")
 
     return result
 
@@ -460,10 +506,17 @@ async def main():
     me = await client.get_me()
     log.info(f"Logged in as {me.first_name} (ID: {me.id})")
 
+    http_session = aiohttp.ClientSession()
+
+    backend_channels = await fetch_source_channels(http_session)
+    configured_channels = merge_unique_channels(MONITOR_CHANNELS, backend_channels)
+    MONITOR_CHANNELS[:] = configured_channels
+
     # Resolve monitored channels
     channel_ids = set()
-    if MONITOR_CHANNELS:
-        for handle in MONITOR_CHANNELS:
+    if configured_channels:
+        log.info("Loaded %s monitored source channels", len(configured_channels))
+        for handle in configured_channels:
             try:
                 entity = await resolve_channel_entity(client, handle)
                 channel_ids.add(entity.id)
@@ -472,9 +525,8 @@ async def main():
             except Exception as e:
                 log.warning(f"Cannot resolve {handle}: {e}")
     else:
-        log.warning("No MONITOR_CHANNELS set. Listening to ALL channels the user is in.")
+        log.warning("No source channels were loaded from MONITOR_CHANNELS or backend. Listening to ALL channels the user is in.")
 
-    http_session = aiohttp.ClientSession()
     loop = asyncio.get_event_loop()
 
     @client.on(events.NewMessage(chats=list(channel_ids) if channel_ids else None))
