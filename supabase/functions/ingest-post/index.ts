@@ -82,6 +82,21 @@ serve(async (req) => {
       .eq("type", "source")
       .eq("status", "active");
 
+    const { data: uploadSetting } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "bot_upload_chat")
+      .maybeSingle();
+
+    const { data: fallbackUploadChannel } = await supabase
+      .from("channels")
+      .select("handle")
+      .eq("type", "target")
+      .eq("status", "active")
+      .eq("is_owned", true)
+      .limit(1)
+      .maybeSingle();
+
     if (error) {
       return new Response(
         JSON.stringify({ error: error.message }),
@@ -89,8 +104,20 @@ serve(async (req) => {
       );
     }
 
+    const settingValue = uploadSetting?.value;
+    const botUploadChat = typeof settingValue === "string"
+      ? settingValue.trim()
+      : typeof settingValue === "object" && settingValue && "handle" in settingValue && typeof settingValue.handle === "string"
+        ? settingValue.handle.trim()
+        : typeof settingValue === "object" && settingValue && "chat_id" in settingValue && typeof settingValue.chat_id === "string"
+          ? settingValue.chat_id.trim()
+          : String(fallbackUploadChannel?.handle || "").trim();
+
     return new Response(
-      JSON.stringify({ source_channels: (data ?? []).map((channel) => channel.handle).filter(Boolean) }),
+      JSON.stringify({
+        source_channels: (data ?? []).map((channel) => channel.handle).filter(Boolean),
+        bot_upload_chat: botUploadChat,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   };
