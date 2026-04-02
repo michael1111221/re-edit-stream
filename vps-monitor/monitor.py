@@ -64,6 +64,9 @@ MONITOR_CHANNELS = [
     ch.strip() for ch in os.environ.get("MONITOR_CHANNELS", "").split(",") if ch.strip()
 ]
 
+# Resolved mapping from Telegram chat ID to the original configured handle/invite link
+RESOLVED_CHANNEL_HANDLES: dict[int, str] = {}
+
 # How long to wait for more messages in a media group before sending (seconds)
 MEDIA_GROUP_WAIT = 1.5
 
@@ -136,7 +139,9 @@ async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
 
 
 def get_channel_handle(chat) -> str:
-    """Extract @username or chat_id string from a chat entity."""
+    """Extract configured handle, @username or numeric chat_id from a chat entity."""
+    if chat.id in RESOLVED_CHANNEL_HANDLES:
+        return RESOLVED_CHANNEL_HANDLES[chat.id]
     if hasattr(chat, "username") and chat.username:
         return f"@{chat.username}"
     return str(chat.id)
@@ -235,6 +240,7 @@ async def main():
             try:
                 entity = await client.get_entity(handle)
                 channel_ids.add(entity.id)
+                RESOLVED_CHANNEL_HANDLES[entity.id] = handle
                 log.info(f"Monitoring: {handle} (ID: {entity.id})")
             except Exception as e:
                 log.warning(f"Cannot resolve {handle}: {e}")

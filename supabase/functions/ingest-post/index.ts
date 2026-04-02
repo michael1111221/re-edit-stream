@@ -101,21 +101,52 @@ serve(async (req) => {
     console.log(`Ingest post from ${source_channel_handle}, type: ${media_type}`);
 
     // Find source channel
-    const handle = source_channel_handle.startsWith("@")
-      ? source_channel_handle
-      : `@${source_channel_handle}`;
-    const handleNoAt = handle.replace("@", "");
+    const rawSourceHandle = String(source_channel_handle).trim();
+    const isNumericHandle = /^-?\d+$/.test(rawSourceHandle);
+    const normalizedHandle = rawSourceHandle.startsWith("@") || rawSourceHandle.startsWith("http")
+      ? rawSourceHandle
+      : isNumericHandle
+        ? rawSourceHandle
+        : `@${rawSourceHandle}`;
+    const handleNoAt = normalizedHandle.startsWith("@")
+      ? normalizedHandle.slice(1)
+      : normalizedHandle;
 
-    const { data: sourceChannels } = await supabase
+    const sourceHandleCandidates = Array.from(new Set([
+      normalizedHandle,
+      handleNoAt,
+      isNumericHandle ? `@${rawSourceHandle}` : rawSourceHandle,
+    ]));
+
+    let sourceChannel: any = null;
+    const { data: exactSourceChannels } = await supabase
       .from("channels")
       .select("*")
       .eq("type", "source")
-      .or(`handle.eq.${handle},handle.eq.${handleNoAt}`);
+      .in("handle", sourceHandleCandidates);
 
-    const sourceChannel = sourceChannels?.[0];
+    sourceChannel = exactSourceChannels?.[0] ?? null;
+
+    if (!sourceChannel && rawSourceHandle.includes("/") === false) {
+      const { data: allSourceChannels } = await supabase
+        .from("channels")
+        .select("*")
+        .eq("type", "source");
+
+      sourceChannel = allSourceChannels?.find((channel: any) => {
+        const storedHandle = String(channel.handle || "").trim();
+        return (
+          storedHandle === normalizedHandle ||
+          storedHandle === handleNoAt ||
+          storedHandle === rawSourceHandle ||
+          storedHandle.endsWith(`/${handleNoAt}`)
+        );
+      }) ?? null;
+    }
+
     if (!sourceChannel) {
       return new Response(
-        JSON.stringify({ error: `Source channel not found: ${handle}` }),
+        JSON.stringify({ error: `Source channel not found: ${normalizedHandle}` }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
