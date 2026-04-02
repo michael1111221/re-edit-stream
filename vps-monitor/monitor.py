@@ -132,20 +132,35 @@ async def resolve_channel_entity(client: TelegramClient, handle: str):
     return await client.get_entity(handle)
 
 
-def remember_resolved_channel(handle: str, entity) -> None:
-    """Store multiple ID variants so new events can map back to the configured handle."""
-    candidate_ids = {getattr(entity, "id", None)}
+def get_entity_lookup_ids(entity) -> set[int]:
+    """Collect all numeric ID variants that may represent the same Telegram channel."""
+    candidate_ids: set[int] = set()
+
+    raw_id = getattr(entity, "id", None)
+    if isinstance(raw_id, int):
+        candidate_ids.add(raw_id)
 
     try:
-        candidate_ids.add(get_peer_id(entity))
+        peer_id = get_peer_id(entity)
+        if isinstance(peer_id, int):
+            candidate_ids.add(peer_id)
     except Exception:
         pass
 
+    expanded_ids: set[int] = set()
     for candidate_id in candidate_ids:
-        if isinstance(candidate_id, int):
-            RESOLVED_CHANNEL_HANDLES[candidate_id] = handle
-            if str(candidate_id).startswith("-100"):
-                RESOLVED_CHANNEL_HANDLES[int(str(candidate_id)[4:])] = handle
+        expanded_ids.add(candidate_id)
+        candidate_str = str(candidate_id)
+        if candidate_str.startswith("-100"):
+            expanded_ids.add(int(candidate_str[4:]))
+
+    return expanded_ids
+
+
+def remember_resolved_channel(handle: str, entity) -> None:
+    """Store multiple ID variants so new events can map back to the configured handle."""
+    for candidate_id in get_entity_lookup_ids(entity):
+        RESOLVED_CHANNEL_HANDLES[candidate_id] = handle
 
 
 def iter_channel_lookup_ids(chat, chat_id: int | None = None):
@@ -297,11 +312,29 @@ async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
         log.error(f"❌ Failed to send to ingest: {e}")
 
 
-def get_channel_handle(chat, chat_id: int | None = None) -> str:
+async def get_channel_handle(client: TelegramClient, chat, chat_id: int | None = None) -> str:
     """Extract configured handle, @username or numeric chat_id from a chat entity."""
     for candidate_id in iter_channel_lookup_ids(chat, chat_id):
         if candidate_id in RESOLVED_CHANNEL_HANDLES:
             return RESOLVED_CHANNEL_HANDLES[candidate_id]
+
+    if MONITOR_CHANNELS:
+        current_ids = set(iter_channel_lookup_ids(chat, chat_id))
+
+        for configured_handle in MONITOR_CHANNELS:
+            try:
+                entity = await resolve_channel_entity(client, configured_handle)
+                remember_resolved_channel(configured_handle, entity)
+
+                if current_ids & get_entity_lookup_ids(entity):
+                    log.info(
+                        "Recovered source-channel mapping for %s -> %s",
+                        sorted(current_ids),
+                        configured_handle,
+                    )
+                    return configured_handle
+            except Exception as exc:
+                log.debug("Failed to re-resolve %s during lookup recovery: %s", configured_handle, exc)
 
     if hasattr(chat, "username") and chat.username:
         return f"@{chat.username}"
@@ -453,7 +486,7 @@ async def main():
         if not event.is_channel:
             return
 
-        handle = get_channel_handle(chat, event.chat_id)
+        handle = await get_channel_handle(client, chat, event.chat_id)
         media_type = classify_media(message)
 
         # Check if this message is part of a media group (album)
