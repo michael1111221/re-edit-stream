@@ -70,6 +70,8 @@ MONITOR_CHANNELS = [
 
 # Resolved mapping from Telegram chat ID to the original configured handle/invite link
 RESOLVED_CHANNEL_HANDLES: dict[int, str] = {}
+# Additional aliases (normalized forms) for each resolved channel ID so private links keep matching.
+RESOLVED_CHANNEL_ALIASES: dict[int, set[str]] = defaultdict(set)
 
 # How long to wait for more messages in a media group before sending (seconds)
 MEDIA_GROUP_WAIT = 1.5
@@ -158,10 +160,47 @@ def get_entity_lookup_ids(entity) -> set[int]:
     return expanded_ids
 
 
+def normalize_channel_reference(value: str) -> str:
+    """Normalize public/private Telegram references so different URL forms can match."""
+    cleaned = value.strip().rstrip("/")
+    invite_hash = extract_invite_hash(cleaned)
+    if invite_hash:
+        return invite_hash
+
+    lowered = cleaned.lower()
+    for prefix in (
+        "https://t.me/",
+        "http://t.me/",
+        "t.me/",
+        "https://telegram.me/",
+        "http://telegram.me/",
+        "telegram.me/",
+    ):
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+
+    if cleaned.startswith("@"):
+        cleaned = cleaned[1:]
+
+    return cleaned.strip()
+
+
 def remember_resolved_channel(handle: str, entity) -> None:
     """Store multiple ID variants so new events can map back to the configured handle."""
+    aliases = {
+        handle,
+        normalize_channel_reference(handle),
+    }
+
+    if hasattr(entity, "username") and entity.username:
+        aliases.update({f"@{entity.username}", entity.username})
+
+    aliases = {alias for alias in aliases if alias}
+
     for candidate_id in get_entity_lookup_ids(entity):
         RESOLVED_CHANNEL_HANDLES[candidate_id] = handle
+        RESOLVED_CHANNEL_ALIASES[candidate_id].update(aliases)
 
 
 def iter_channel_lookup_ids(chat, chat_id: int | None = None):
@@ -293,6 +332,33 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
     except Exception as e:
         log.error(f"Failed to upload via Bot API: {e}")
         return None
+
+
+def get_channel_aliases(chat, chat_id: int | None = None) -> list[str]:
+    """Return all known aliases for a chat, including numeric IDs for private channels."""
+    aliases: list[str] = []
+    seen: set[str] = set()
+
+    for candidate_id in iter_channel_lookup_ids(chat, chat_id):
+        for alias in RESOLVED_CHANNEL_ALIASES.get(candidate_id, set()):
+            if alias not in seen:
+                seen.add(alias)
+                aliases.append(alias)
+
+    if hasattr(chat, "username") and chat.username:
+        for alias in (f"@{chat.username}", chat.username):
+            if alias not in seen:
+                seen.add(alias)
+                aliases.append(alias)
+
+    fallback_id = getattr(chat, "id", None) or chat_id
+    if fallback_id is not None:
+        for alias in (str(fallback_id), f"-100{fallback_id}"):
+            if alias not in seen:
+                seen.add(alias)
+                aliases.append(alias)
+
+    return aliases
 
 
 async def fetch_source_channels(http_session: aiohttp.ClientSession) -> list[str]:
@@ -478,9 +544,11 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
     # Check if any message in the group has inline buttons
     has_buttons = any(isinstance(m.reply_markup, ReplyInlineMarkup) for m in messages)
 
+    first_message = messages[0]
     payload = {
         "source_channel_handle": handle,
-        "message_id": messages[0].id,
+        "source_channel_aliases": get_channel_aliases(await first_message.get_chat(), first_message.chat_id),
+        "message_id": first_message.id,
         "text": group_caption,
         "media_type": "media_group",
         "media_group": items,
@@ -578,6 +646,7 @@ async def main():
 
         payload = {
             "source_channel_handle": handle,
+            "source_channel_aliases": get_channel_aliases(chat, event.chat_id),
             "message_id": message.id,
             "text": message.text or message.message or "",
             "media_type": media_type,
