@@ -154,8 +154,16 @@ def get_entity_lookup_ids(entity) -> set[int]:
     for candidate_id in candidate_ids:
         expanded_ids.add(candidate_id)
         candidate_str = str(candidate_id)
+        unsigned_str = candidate_str.lstrip("-")
+
+        if unsigned_str.startswith("100") and len(unsigned_str) > 3:
+            expanded_ids.add(int(unsigned_str[3:]))
+
         if candidate_str.startswith("-100"):
             expanded_ids.add(int(candidate_str[4:]))
+        elif not candidate_str.startswith("-") and not candidate_str.startswith("100"):
+            expanded_ids.add(int(f"100{candidate_str}"))
+            expanded_ids.add(int(f"-100{candidate_str}"))
 
     return expanded_ids
 
@@ -203,29 +211,49 @@ def remember_resolved_channel(handle: str, entity) -> None:
         RESOLVED_CHANNEL_ALIASES[candidate_id].update(aliases)
 
 
+def expand_lookup_id_variants(candidate_id: int) -> list[int]:
+    variants: list[int] = []
+    candidate_str = str(candidate_id)
+    unsigned_str = candidate_str.lstrip("-")
+
+    for value in (candidate_id,):
+        if value not in variants:
+            variants.append(value)
+
+    if unsigned_str.startswith("100") and len(unsigned_str) > 3:
+        short_id = int(unsigned_str[3:])
+        if short_id not in variants:
+            variants.append(short_id)
+
+    if candidate_str.startswith("-100"):
+        short_id = int(candidate_str[4:])
+        if short_id not in variants:
+            variants.append(short_id)
+    elif not candidate_str.startswith("-") and not candidate_str.startswith("100"):
+        for variant in (int(f"100{candidate_str}"), int(f"-100{candidate_str}")):
+            if variant not in variants:
+                variants.append(variant)
+
+    return variants
+
+
 def iter_channel_lookup_ids(chat, chat_id: int | None = None):
     seen: set[int] = set()
 
-    for candidate_id in (chat_id, getattr(chat, "id", None)):
-        if isinstance(candidate_id, int) and candidate_id not in seen:
-            seen.add(candidate_id)
-            yield candidate_id
-            if str(candidate_id).startswith("-100"):
-                short_id = int(str(candidate_id)[4:])
-                if short_id not in seen:
-                    seen.add(short_id)
-                    yield short_id
+    for raw_candidate in (chat_id, getattr(chat, "id", None)):
+        if isinstance(raw_candidate, int):
+            for candidate_id in expand_lookup_id_variants(raw_candidate):
+                if candidate_id not in seen:
+                    seen.add(candidate_id)
+                    yield candidate_id
 
     try:
         peer_id = get_peer_id(chat)
-        if isinstance(peer_id, int) and peer_id not in seen:
-            seen.add(peer_id)
-            yield peer_id
-            if str(peer_id).startswith("-100"):
-                short_id = int(str(peer_id)[4:])
-                if short_id not in seen:
-                    seen.add(short_id)
-                    yield short_id
+        if isinstance(peer_id, int):
+            for candidate_id in expand_lookup_id_variants(peer_id):
+                if candidate_id not in seen:
+                    seen.add(candidate_id)
+                    yield candidate_id
     except Exception:
         return
 
