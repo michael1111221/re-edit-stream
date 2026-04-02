@@ -207,6 +207,13 @@ def remember_resolved_channel(handle: str, entity) -> None:
         normalize_channel_reference(handle),
     }
 
+    title = (getattr(entity, "title", None) or "").strip()
+    normalized_title = normalize_channel_title(title)
+    if title:
+        aliases.add(title)
+    if normalized_title:
+        aliases.add(normalized_title)
+
     if hasattr(entity, "username") and entity.username:
         aliases.update({f"@{entity.username}", entity.username})
 
@@ -262,6 +269,43 @@ def iter_channel_lookup_ids(chat, chat_id: int | None = None):
                     yield candidate_id
     except Exception:
         return
+
+
+def has_chat_identity(chat) -> bool:
+    """Return True when the chat object already contains useful identity fields."""
+    return bool(
+        (getattr(chat, "title", None) or "").strip()
+        or (getattr(chat, "username", None) or "").strip()
+    )
+
+
+async def hydrate_chat_entity(client: TelegramClient, chat, chat_id: int | None = None):
+    """Resolve lightweight/private chat objects into a fuller entity when possible."""
+    if has_chat_identity(chat):
+        return chat
+
+    references = []
+    if chat is not None:
+        references.append(chat)
+
+    for candidate_id in iter_channel_lookup_ids(chat, chat_id):
+        references.extend([candidate_id, str(candidate_id)])
+
+    seen: set[str] = set()
+    for reference in references:
+        cache_key = repr(reference)
+        if cache_key in seen:
+            continue
+        seen.add(cache_key)
+
+        try:
+            entity = await client.get_entity(reference)
+            if entity is not None:
+                return entity
+        except Exception:
+            continue
+
+    return chat
 
 def classify_media(message) -> str:
     """Returns media_type string."""
@@ -592,10 +636,11 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
     has_buttons = any(isinstance(m.reply_markup, ReplyInlineMarkup) for m in messages)
 
     first_message = messages[0]
+    first_chat = await hydrate_chat_entity(client, await first_message.get_chat(), first_message.chat_id)
     payload = {
         "source_channel_handle": handle,
-        "source_channel_aliases": get_channel_aliases(await first_message.get_chat(), first_message.chat_id),
-            "source_channel_title": (getattr(await first_message.get_chat(), "title", None) or "").strip(),
+        "source_channel_aliases": get_channel_aliases(first_chat, first_message.chat_id),
+        "source_channel_title": (getattr(first_chat, "title", None) or "").strip(),
         "message_id": first_message.id,
         "text": group_caption,
         "media_type": "media_group",
@@ -648,7 +693,7 @@ async def main():
     @client.on(events.NewMessage(chats=list(channel_ids) if channel_ids else None))
     async def handler(event):
         message = event.message
-        chat = await event.get_chat()
+        chat = await hydrate_chat_entity(client, await event.get_chat(), event.chat_id)
 
         # Only process channel posts
         if not event.is_channel:
