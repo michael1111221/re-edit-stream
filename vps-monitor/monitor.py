@@ -64,6 +64,9 @@ MONITOR_CHANNELS = [
     ch.strip() for ch in os.environ.get("MONITOR_CHANNELS", "").split(",") if ch.strip()
 ]
 
+# Resolved mapping from Telegram chat ID to the original configured handle/invite link
+RESOLVED_CHANNEL_HANDLES: dict[int, str] = {}
+
 # How long to wait for more messages in a media group before sending (seconds)
 MEDIA_GROUP_WAIT = 1.5
 
