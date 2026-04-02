@@ -111,6 +111,7 @@ serve(async (req) => {
     const body = await req.json();
     const {
       source_channel_handle,
+      source_channel_aliases = [],
       message_id,
       text = "",
       media_type = "text",
@@ -132,53 +133,63 @@ serve(async (req) => {
 
     console.log(`Ingest post from ${source_channel_handle}, type: ${media_type}`);
 
+    const normalizeChannelReference = (value: string) => {
+      const trimmed = String(value || "").trim().replace(/\/$/, "");
+      if (!trimmed) return "";
+
+      const inviteMatch = trimmed.match(/(?:t\.me|telegram\.me)\/(?:joinchat\/|\+)([^/?#]+)/i) || trimmed.match(/^\+([^/?#]+)/);
+      if (inviteMatch?.[1]) return inviteMatch[1];
+
+      return trimmed
+        .replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i, "")
+        .replace(/^@/, "")
+        .trim();
+    };
+
     // Find source channel
     const rawSourceHandle = String(source_channel_handle).trim();
-    const isNumericHandle = /^-?\d+$/.test(rawSourceHandle);
-    const normalizedHandle = rawSourceHandle.startsWith("@") || rawSourceHandle.startsWith("http")
-      ? rawSourceHandle
-      : isNumericHandle
-        ? rawSourceHandle
-        : `@${rawSourceHandle}`;
-    const handleNoAt = normalizedHandle.startsWith("@")
-      ? normalizedHandle.slice(1)
-      : normalizedHandle;
+    const rawAliases = Array.isArray(source_channel_aliases) ? source_channel_aliases.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+    const candidateInputs = [rawSourceHandle, ...rawAliases.map((value) => String(value || "").trim())]
+      .filter(Boolean);
 
-    const sourceHandleCandidates = Array.from(new Set([
-      normalizedHandle,
-      handleNoAt,
-      isNumericHandle ? `@${rawSourceHandle}` : rawSourceHandle,
-    ]));
+    const exactCandidates = Array.from(new Set(candidateInputs.flatMap((value) => {
+      const normalized = normalizeChannelReference(value);
+      const isNumeric = /^-?\d+$/.test(value) || /^-?\d+$/.test(normalized);
+      return [
+        value,
+        normalized,
+        value.startsWith("@") || value.startsWith("http") ? value : isNumeric ? value : `@${value}`,
+        normalized && !normalized.startsWith("@") && !/^\d+$/.test(normalized) ? `@${normalized}` : normalized,
+      ].filter(Boolean);
+    })));
 
     let sourceChannel: any = null;
     const { data: exactSourceChannels } = await supabase
       .from("channels")
       .select("*")
       .eq("type", "source")
-      .in("handle", sourceHandleCandidates);
+      .in("handle", exactCandidates);
 
     sourceChannel = exactSourceChannels?.[0] ?? null;
 
-    if (!sourceChannel && rawSourceHandle.includes("/") === false) {
+    if (!sourceChannel) {
       const { data: allSourceChannels } = await supabase
         .from("channels")
         .select("*")
         .eq("type", "source");
 
+      const normalizedCandidates = new Set(exactCandidates.map(normalizeChannelReference).filter(Boolean));
+
       sourceChannel = allSourceChannels?.find((channel: any) => {
         const storedHandle = String(channel.handle || "").trim();
-        return (
-          storedHandle === normalizedHandle ||
-          storedHandle === handleNoAt ||
-          storedHandle === rawSourceHandle ||
-          storedHandle.endsWith(`/${handleNoAt}`)
-        );
+        const normalizedStoredHandle = normalizeChannelReference(storedHandle);
+        return normalizedCandidates.has(storedHandle) || normalizedCandidates.has(normalizedStoredHandle);
       }) ?? null;
     }
 
     if (!sourceChannel) {
       return new Response(
-        JSON.stringify({ error: `Source channel not found: ${normalizedHandle}` }),
+        JSON.stringify({ error: `Source channel not found: ${rawSourceHandle}`, aliases: exactCandidates }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
