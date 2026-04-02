@@ -112,6 +112,7 @@ serve(async (req) => {
     const {
       source_channel_handle,
       source_channel_aliases = [],
+      source_channel_title = "",
       message_id,
       text = "",
       media_type = "text",
@@ -146,6 +147,13 @@ serve(async (req) => {
         .trim();
     };
 
+    const normalizeChannelTitle = (value: string) => String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
+      .trim();
+
     // Find source channel
     const rawSourceHandle = String(source_channel_handle).trim();
     const rawAliases = Array.isArray(source_channel_aliases) ? source_channel_aliases.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
@@ -179,11 +187,20 @@ serve(async (req) => {
         .eq("type", "source");
 
       const normalizedCandidates = new Set(exactCandidates.map(normalizeChannelReference).filter(Boolean));
+      const normalizedTitleCandidates = new Set([
+        normalizeChannelTitle(source_channel_title),
+        ...exactCandidates.map(normalizeChannelTitle),
+      ].filter(Boolean));
 
       sourceChannel = allSourceChannels?.find((channel: any) => {
         const storedHandle = String(channel.handle || "").trim();
         const normalizedStoredHandle = normalizeChannelReference(storedHandle);
-        return normalizedCandidates.has(storedHandle) || normalizedCandidates.has(normalizedStoredHandle);
+        const storedName = String(channel.name || "").trim();
+        const normalizedStoredName = normalizeChannelTitle(storedName);
+
+        return normalizedCandidates.has(storedHandle)
+          || normalizedCandidates.has(normalizedStoredHandle)
+          || (normalizedStoredName && normalizedTitleCandidates.has(normalizedStoredName));
       }) ?? null;
     }
 
