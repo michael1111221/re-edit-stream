@@ -404,14 +404,8 @@ async def main():
         }
 
         if media_type != "text" and message.file:
-            media_bytes = await download_and_get_bytes(client, message)
-            if media_bytes:
-                if len(media_bytes) < 10 * 1024 * 1024:
-                    payload["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
-                    payload["media_filename"] = message.file.name or f"media.{message.file.ext or 'bin'}"
-                    payload["media_mime"] = message.file.mime_type or "application/octet-stream"
-                else:
-                    log.warning(f"Media too large ({len(media_bytes)} bytes), skipping media attachment")
+            media_payload = await get_media_payload(client, http_session, message, media_type)
+            payload.update(media_payload)
 
         await send_to_ingest(http_session, payload)
 
