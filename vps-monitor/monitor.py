@@ -31,13 +31,16 @@ from datetime import datetime
 from collections import defaultdict
 
 from telethon import TelegramClient, events
+from telethon.tl.functions.messages import CheckChatInviteRequest
 from telethon.tl.types import (
+    ChatInviteAlready,
     MessageMediaPhoto,
     MessageMediaDocument,
     DocumentAttributeVideo,
     DocumentAttributeAnimated,
     ReplyInlineMarkup,
 )
+from telethon.utils import get_peer_id
 import aiohttp
 
 # ── Load .env file if present ───────────────────────────────────────
@@ -88,6 +91,88 @@ media_group_lock = asyncio.Lock()
 MAX_BASE64_SIZE = 5 * 1024 * 1024
 
 # ── Helpers ─────────────────────────────────────────────────────────
+
+def extract_invite_hash(value: str) -> str | None:
+    """Extract Telegram invite hash from private invite links."""
+    cleaned = value.strip().rstrip("/")
+    prefixes = (
+        "https://t.me/+",
+        "http://t.me/+",
+        "t.me/+",
+        "https://telegram.me/+",
+        "http://telegram.me/+",
+        "telegram.me/+",
+        "https://t.me/joinchat/",
+        "http://t.me/joinchat/",
+        "t.me/joinchat/",
+        "https://telegram.me/joinchat/",
+        "http://telegram.me/joinchat/",
+        "telegram.me/joinchat/",
+    )
+
+    if cleaned.startswith("+"):
+        return cleaned[1:]
+
+    for prefix in prefixes:
+        if cleaned.startswith(prefix):
+            return cleaned[len(prefix):].split("?", 1)[0]
+
+    return None
+
+
+async def resolve_channel_entity(client: TelegramClient, handle: str):
+    """Resolve public handles and private invite links to a Telegram entity."""
+    invite_hash = extract_invite_hash(handle)
+    if invite_hash:
+        invite = await client(CheckChatInviteRequest(invite_hash))
+        if isinstance(invite, ChatInviteAlready):
+            return invite.chat
+        raise ValueError("The logged-in Telegram user is not a member of this private channel")
+
+    return await client.get_entity(handle)
+
+
+def remember_resolved_channel(handle: str, entity) -> None:
+    """Store multiple ID variants so new events can map back to the configured handle."""
+    candidate_ids = {getattr(entity, "id", None)}
+
+    try:
+        candidate_ids.add(get_peer_id(entity))
+    except Exception:
+        pass
+
+    for candidate_id in candidate_ids:
+        if isinstance(candidate_id, int):
+            RESOLVED_CHANNEL_HANDLES[candidate_id] = handle
+            if str(candidate_id).startswith("-100"):
+                RESOLVED_CHANNEL_HANDLES[int(str(candidate_id)[4:])] = handle
+
+
+def iter_channel_lookup_ids(chat, chat_id: int | None = None):
+    seen: set[int] = set()
+
+    for candidate_id in (chat_id, getattr(chat, "id", None)):
+        if isinstance(candidate_id, int) and candidate_id not in seen:
+            seen.add(candidate_id)
+            yield candidate_id
+            if str(candidate_id).startswith("-100"):
+                short_id = int(str(candidate_id)[4:])
+                if short_id not in seen:
+                    seen.add(short_id)
+                    yield short_id
+
+    try:
+        peer_id = get_peer_id(chat)
+        if isinstance(peer_id, int) and peer_id not in seen:
+            seen.add(peer_id)
+            yield peer_id
+            if str(peer_id).startswith("-100"):
+                short_id = int(str(peer_id)[4:])
+                if short_id not in seen:
+                    seen.add(short_id)
+                    yield short_id
+    except Exception:
+        return
 
 def classify_media(message) -> str:
     """Returns media_type string."""
@@ -212,13 +297,24 @@ async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
         log.error(f"❌ Failed to send to ingest: {e}")
 
 
-def get_channel_handle(chat) -> str:
+def get_channel_handle(chat, chat_id: int | None = None) -> str:
     """Extract configured handle, @username or numeric chat_id from a chat entity."""
-    if chat.id in RESOLVED_CHANNEL_HANDLES:
-        return RESOLVED_CHANNEL_HANDLES[chat.id]
+    for candidate_id in iter_channel_lookup_ids(chat, chat_id):
+        if candidate_id in RESOLVED_CHANNEL_HANDLES:
+            return RESOLVED_CHANNEL_HANDLES[candidate_id]
+
     if hasattr(chat, "username") and chat.username:
         return f"@{chat.username}"
-    return str(chat.id)
+
+    fallback_id = getattr(chat, "id", None) or chat_id
+    if fallback_id is not None:
+        log.warning(
+            "Could not map chat ID %s back to a configured MONITOR_CHANNELS entry; sending numeric ID",
+            fallback_id,
+        )
+        return str(fallback_id)
+
+    return ""
 
 
 async def get_media_payload(client: TelegramClient, http_session: aiohttp.ClientSession, message, media_type: str) -> dict:
@@ -336,9 +432,9 @@ async def main():
     if MONITOR_CHANNELS:
         for handle in MONITOR_CHANNELS:
             try:
-                entity = await client.get_entity(handle)
+                entity = await resolve_channel_entity(client, handle)
                 channel_ids.add(entity.id)
-                RESOLVED_CHANNEL_HANDLES[entity.id] = handle
+                remember_resolved_channel(handle, entity)
                 log.info(f"Monitoring: {handle} (ID: {entity.id})")
             except Exception as e:
                 log.warning(f"Cannot resolve {handle}: {e}")
@@ -357,7 +453,7 @@ async def main():
         if not event.is_channel:
             return
 
-        handle = get_channel_handle(chat)
+        handle = get_channel_handle(chat, event.chat_id)
         media_type = classify_media(message)
 
         # Check if this message is part of a media group (album)
