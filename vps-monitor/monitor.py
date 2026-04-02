@@ -460,11 +460,17 @@ async def get_channel_handle(client: TelegramClient, chat, chat_id: int | None =
                 entity = await resolve_channel_entity(client, configured_handle)
                 remember_resolved_channel(configured_handle, entity)
 
-                if current_ids & get_entity_lookup_ids(entity):
+                chat_title = (getattr(chat, "title", None) or "").strip()
+                entity_title = (getattr(entity, "title", None) or "").strip()
+                matched_by_title = bool(chat_title and entity_title and chat_title == entity_title)
+
+                if current_ids & get_entity_lookup_ids(entity) or matched_by_title:
+                    remember_resolved_channel(configured_handle, chat)
                     log.info(
-                        "Recovered source-channel mapping for %s -> %s",
+                        "Recovered source-channel mapping for %s -> %s%s",
                         sorted(current_ids),
                         configured_handle,
+                        " (title match)" if matched_by_title else "",
                     )
                     return configured_handle
             except Exception as exc:
@@ -615,9 +621,9 @@ async def main():
         for handle in configured_channels:
             try:
                 entity = await resolve_channel_entity(client, handle)
-                channel_ids.add(entity.id)
+                channel_ids.update(get_entity_lookup_ids(entity))
                 remember_resolved_channel(handle, entity)
-                log.info(f"Monitoring: {handle} (ID: {entity.id})")
+                log.info(f"Monitoring: {handle} (IDs: {sorted(get_entity_lookup_ids(entity))})")
             except Exception as e:
                 log.warning(f"Cannot resolve {handle}: {e}")
     else:
