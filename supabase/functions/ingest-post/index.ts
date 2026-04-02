@@ -317,49 +317,46 @@ async function processMediaGroup(
     ? targetChannel.handle
     : `@${targetChannel.handle}`;
 
-  // First, upload each media item individually to get file_ids
-  // Then use sendMediaGroup with the file_ids
-  const uploadedMedia: { type: string; media: string }[] = [];
+  // Build media group - support both base64 and file_id
+  const mediaArray: any[] = [];
+  const formData = new FormData();
+  formData.append("chat_id", targetChatId);
+
+  let attachIndex = 0;
 
   for (let i = 0; i < mediaItems.length; i++) {
     const item = mediaItems[i];
-    if (!item.media_base64) continue;
-
-    const binaryData = Uint8Array.from(atob(item.media_base64), c => c.charCodeAt(0));
-    const blob = new Blob([binaryData], { type: item.media_mime || "application/octet-stream" });
-
-    // Upload via send method to get file_id, then delete
-    // Actually, for sendMediaGroup we need to use multipart with attach://
     const mediaType = item.media_type === "video" ? "video" : "photo";
-    uploadedMedia.push({
+
+    let mediaRef: string;
+
+    if (item.media_file_id) {
+      // Use file_id directly (no upload needed)
+      mediaRef = item.media_file_id;
+    } else if (item.media_base64) {
+      // Upload via multipart
+      const binaryData = Uint8Array.from(atob(item.media_base64), c => c.charCodeAt(0));
+      const blob = new Blob([binaryData], { type: item.media_mime || "application/octet-stream" });
+      const fieldName = `file${attachIndex}`;
+      formData.append(fieldName, blob, item.media_filename || `file${attachIndex}.jpg`);
+      mediaRef = `attach://${fieldName}`;
+      attachIndex++;
+    } else {
+      continue;
+    }
+
+    mediaArray.push({
       type: mediaType,
-      media: `attach://file${i}`,
+      media: mediaRef,
+      ...(i === 0 && processedCaption ? { caption: processedCaption, parse_mode: "HTML" } : {}),
     });
   }
 
-  if (uploadedMedia.length === 0) {
+  if (mediaArray.length === 0) {
     return { success: false, error: "No valid media items in group" };
   }
 
-  // Build the media array for sendMediaGroup
-  const mediaArray = uploadedMedia.map((m, i) => ({
-    type: m.type,
-    media: m.media,
-    ...(i === 0 && processedCaption ? { caption: processedCaption, parse_mode: "HTML" } : {}),
-  }));
-
-  // Build multipart form
-  const formData = new FormData();
-  formData.append("chat_id", targetChatId);
-  formData.append("media", JSON.stringify(mediaArray));
-
-  for (let i = 0; i < mediaItems.length; i++) {
-    const item = mediaItems[i];
-    if (!item.media_base64) continue;
-    const binaryData = Uint8Array.from(atob(item.media_base64), c => c.charCodeAt(0));
-    const blob = new Blob([binaryData], { type: item.media_mime || "application/octet-stream" });
-    formData.append(`file${i}`, blob, item.media_filename || `file${i}.jpg`);
-  }
+  formData.set("media", JSON.stringify(mediaArray));
 
   const resp = await fetch(`${baseUrl}/sendMediaGroup`, {
     method: "POST",
