@@ -58,6 +58,7 @@ PHONE = os.environ.get("TELEGRAM_PHONE", "")
 INGEST_URL = os.environ.get("INGEST_URL", "")
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
 SESSION_NAME = os.environ.get("SESSION_NAME", "monitor_session")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 # Channels to monitor — set via MONITOR_CHANNELS env var as comma-separated handles
 MONITOR_CHANNELS = [
