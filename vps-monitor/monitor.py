@@ -194,6 +194,12 @@ def normalize_channel_reference(value: str) -> str:
     return cleaned.strip()
 
 
+def normalize_channel_title(value: str) -> str:
+    """Normalize channel titles/names for fuzzy matching across monitor and backend."""
+    cleaned = " ".join(str(value or "").strip().lower().split())
+    return "".join(ch for ch in cleaned if ch.isalnum() or ch.isspace()).strip()
+
+
 def remember_resolved_channel(handle: str, entity) -> None:
     """Store multiple ID variants so new events can map back to the configured handle."""
     aliases = {
@@ -378,6 +384,13 @@ def get_channel_aliases(chat, chat_id: int | None = None) -> list[str]:
             if alias not in seen:
                 seen.add(alias)
                 aliases.append(alias)
+
+    title = (getattr(chat, "title", None) or "").strip()
+    normalized_title = normalize_channel_title(title)
+    for alias in (title, normalized_title):
+        if alias and alias not in seen:
+            seen.add(alias)
+            aliases.append(alias)
 
     fallback_id = getattr(chat, "id", None) or chat_id
     if fallback_id is not None:
@@ -582,6 +595,7 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
     payload = {
         "source_channel_handle": handle,
         "source_channel_aliases": get_channel_aliases(await first_message.get_chat(), first_message.chat_id),
+            "source_channel_title": (getattr(await first_message.get_chat(), "title", None) or "").strip(),
         "message_id": first_message.id,
         "text": group_caption,
         "media_type": "media_group",
@@ -681,6 +695,7 @@ async def main():
         payload = {
             "source_channel_handle": handle,
             "source_channel_aliases": get_channel_aliases(chat, event.chat_id),
+            "source_channel_title": (getattr(chat, "title", None) or "").strip(),
             "message_id": message.id,
             "text": message.text or message.message or "",
             "media_type": media_type,
