@@ -623,16 +623,19 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
     # Sort by message ID to preserve order
     messages.sort(key=lambda m: m.id)
 
-    # Prepare all media items
+    # Prepare all media items concurrently for speed
+    tasks = [prepare_media_item(client, http_session, msg) for msg in messages]
+    prepared = await asyncio.gather(*tasks)
+
     items = []
     group_caption = ""
-    for msg in messages:
-        item = await prepare_media_item(client, http_session, msg)
+    for i, item in enumerate(prepared):
         if item:
-            # Only the first item should carry the caption
             if not group_caption and item.get("text"):
                 group_caption = item["text"]
             items.append(item)
+        else:
+            log.warning(f"Media group {group_id}: item {i+1}/{len(messages)} (msg_id={messages[i].id}) failed to prepare")
 
     if not items:
         log.warning(f"No valid media items in group {group_id}")
