@@ -343,9 +343,10 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
         return None
 
 
-async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str) -> str | None:
+async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str, retries: int = 2) -> str | None:
     """Upload a file to Telegram Bot API and return the file_id.
-    Sends the file to a temporary bot-accessible chat, then deletes the message."""
+    Sends the file to a temporary bot-accessible chat, then deletes the message.
+    Retries on failure."""
     if not BOT_TOKEN:
         log.warning("BOT_TOKEN not set, cannot upload via Bot API")
         return None
@@ -365,46 +366,62 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
     }
     method, field = method_map.get(media_type, ("sendDocument", "document"))
 
-    form = aiohttp.FormData()
-    form.add_field("chat_id", BOT_UPLOAD_CHAT)
-    form.add_field(field, media_bytes, filename=filename, content_type=mime_type)
+    for attempt in range(1, retries + 1):
+        form = aiohttp.FormData()
+        form.add_field("chat_id", BOT_UPLOAD_CHAT)
+        form.add_field(field, media_bytes, filename=filename, content_type=mime_type)
 
-    try:
-        async with http_session.post(f"{bot_api}/{method}", data=form, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-            result = await resp.json()
-            if not result.get("ok"):
-                log.error(f"Bot API upload failed: {result.get('description')}")
-                return None
+        try:
+            async with http_session.post(f"{bot_api}/{method}", data=form, timeout=aiohttp.ClientTimeout(total=180)) as resp:
+                result = await resp.json()
+                if not result.get("ok"):
+                    err_desc = result.get('description', 'unknown')
+                    log.error(f"Bot API upload failed (attempt {attempt}/{retries}): {err_desc}")
+                    if attempt < retries:
+                        await asyncio.sleep(3)
+                        continue
+                    return None
 
-            msg_result = result["result"]
-            msg_id = msg_result["message_id"]
+                msg_result = result["result"]
+                msg_id = msg_result["message_id"]
 
-            # Extract file_id from the result
-            file_id = None
-            if media_type == "video" and msg_result.get("video"):
-                file_id = msg_result["video"]["file_id"]
-            elif media_type == "photo" and msg_result.get("photo"):
-                file_id = msg_result["photo"][-1]["file_id"]
-            elif media_type == "animation" and msg_result.get("animation"):
-                file_id = msg_result["animation"]["file_id"]
-            elif msg_result.get("document"):
-                file_id = msg_result["document"]["file_id"]
+                # Extract file_id from the result
+                file_id = None
+                if media_type == "video" and msg_result.get("video"):
+                    file_id = msg_result["video"]["file_id"]
+                elif media_type == "photo" and msg_result.get("photo"):
+                    file_id = msg_result["photo"][-1]["file_id"]
+                elif media_type == "animation" and msg_result.get("animation"):
+                    file_id = msg_result["animation"]["file_id"]
+                elif msg_result.get("document"):
+                    file_id = msg_result["document"]["file_id"]
 
-            # Delete the temporary message
-            try:
-                await http_session.post(
-                    f"{bot_api}/deleteMessage",
-                    json={"chat_id": BOT_UPLOAD_CHAT, "message_id": msg_id},
-                )
-            except Exception:
-                pass
+                # Delete the temporary message
+                try:
+                    await http_session.post(
+                        f"{bot_api}/deleteMessage",
+                        json={"chat_id": BOT_UPLOAD_CHAT, "message_id": msg_id},
+                    )
+                except Exception:
+                    pass
 
-            if file_id:
-                log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
-            return file_id
-    except Exception as e:
-        log.error(f"Failed to upload via Bot API: {e}")
-        return None
+                if file_id:
+                    log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
+                return file_id
+        except asyncio.TimeoutError:
+            log.error(f"Bot API upload timed out (attempt {attempt}/{retries}) for {filename}")
+            if attempt < retries:
+                await asyncio.sleep(3)
+                continue
+            return None
+        except Exception as e:
+            log.error(f"Failed to upload via Bot API (attempt {attempt}/{retries}): {e}")
+            if attempt < retries:
+                await asyncio.sleep(3)
+                continue
+            return None
+
+    return None
 
 
 def get_channel_aliases(chat, chat_id: int | None = None) -> list[str]:
