@@ -577,8 +577,8 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
     return result
 
 
-async def prepare_media_item(client: TelegramClient, http_session: aiohttp.ClientSession, message) -> dict | None:
-    """Prepare a single media item dict for the media_group payload."""
+async def prepare_media_item(client: TelegramClient, http_session: aiohttp.ClientSession, message, retries: int = 2) -> dict | None:
+    """Prepare a single media item dict for the media_group payload with retry logic."""
     media_type = classify_media(message)
     if media_type == "text":
         return None
@@ -588,13 +588,23 @@ async def prepare_media_item(client: TelegramClient, http_session: aiohttp.Clien
         "text": message.text or message.message or "",
     }
 
-    media_payload = await get_media_payload(client, http_session, message, media_type)
-    item.update(media_payload)
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            media_payload = await get_media_payload(client, http_session, message, media_type)
+            if media_payload:
+                item.update(media_payload)
+                return item
+            last_error = "empty payload"
+        except Exception as e:
+            last_error = str(e)
+        
+        if attempt < retries:
+            log.warning(f"Media item prepare attempt {attempt} failed ({last_error}), retrying in 2s...")
+            await asyncio.sleep(2)
 
-    if not media_payload:
-        return None
-
-    return item
+    log.error(f"Failed to prepare media item after {retries} attempts: {last_error}")
+    return None
 
 
 async def flush_media_group(group_id: int, client: TelegramClient, http_session: aiohttp.ClientSession):
