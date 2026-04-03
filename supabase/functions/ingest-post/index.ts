@@ -42,6 +42,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const RETRYABLE_TELEGRAM_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const TELEGRAM_RETRY_DELAYS_MS = [1000, 2500, 5000];
+
+type TelegramResult = {
+  ok?: boolean;
+  description?: string;
+  error_code?: number;
+  result?: any;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -410,7 +420,7 @@ async function processMediaGroup(
     ? targetChannel.handle
     : `@${targetChannel.handle}`;
 
-  // Build media group - support both base64 and file_id
+  // Build media group - support file_id, URL, and multipart attachments
   const mediaArray: any[] = [];
   const formData = new FormData();
   formData.append("chat_id", targetChatId);
@@ -419,13 +429,15 @@ async function processMediaGroup(
 
   for (let i = 0; i < mediaItems.length; i++) {
     const item = mediaItems[i];
-    const mediaType = item.media_type === "video" ? "video" : "photo";
+    const mediaType = normalizeTelegramMediaType(item.media_type);
 
     let mediaRef: string;
 
     if (item.media_file_id) {
       // Use file_id directly (no upload needed)
       mediaRef = item.media_file_id;
+    } else if (item.media_url) {
+      mediaRef = item.media_url;
     } else if (item.media_base64) {
       // Upload via multipart
       const binaryData = Uint8Array.from(atob(item.media_base64), c => c.charCodeAt(0));
@@ -451,12 +463,7 @@ async function processMediaGroup(
 
   formData.set("media", JSON.stringify(mediaArray));
 
-  const resp = await fetch(`${baseUrl}/sendMediaGroup`, {
-    method: "POST",
-    body: formData,
-  });
-
-  const result = await resp.json();
+  const result = await fetchTelegramMultipartWithRetry(`${baseUrl}/sendMediaGroup`, formData);
 
   if (!result.ok) {
     console.error(`Telegram sendMediaGroup failed:`, result.description);
@@ -548,13 +555,7 @@ async function processMapping(
       sendBody = { ...baseBody, animation: mediaSource, caption: processedText };
     }
 
-    const resp = await fetch(`${baseUrl}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sendBody),
-    });
-
-    result = await resp.json();
+    result = await fetchTelegramJsonWithRetry(`${baseUrl}/${method}`, sendBody);
   }
 
   if (!result.ok) {
@@ -604,12 +605,98 @@ async function sendMediaMultipart(
   formData.append("parse_mode", "HTML");
   if (replyMarkup) formData.append("reply_markup", JSON.stringify(replyMarkup));
 
-  const resp = await fetch(`${baseUrl}/${config.method}`, {
-    method: "POST",
-    body: formData,
+  return await fetchTelegramMultipartWithRetry(`${baseUrl}/${config.method}`, formData);
+}
+
+function normalizeTelegramMediaType(mediaType: string): "photo" | "video" | "document" | "animation" {
+  switch (mediaType) {
+    case "video":
+      return "video";
+    case "document":
+      return "document";
+    case "animation":
+      return "animation";
+    default:
+      return "photo";
+  }
+}
+
+async function fetchTelegramJsonWithRetry(url: string, body: Record<string, unknown>): Promise<TelegramResult> {
+  for (let attempt = 0; attempt <= TELEGRAM_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await resp.json();
+
+      if (resp.ok || !RETRYABLE_TELEGRAM_STATUSES.has(resp.status) || attempt === TELEGRAM_RETRY_DELAYS_MS.length) {
+        return result;
+      }
+    } catch (error) {
+      if (attempt === TELEGRAM_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+    }
+
+    await delay(TELEGRAM_RETRY_DELAYS_MS[attempt]);
+  }
+
+  return { ok: false, description: "Telegram request failed after retries" };
+}
+
+async function fetchTelegramMultipartWithRetry(url: string, formData: FormData): Promise<TelegramResult> {
+  const entries = Array.from(formData.entries()).map(([key, value]) => {
+    if (value instanceof File) {
+      return {
+        key,
+        type: "file" as const,
+        file: value,
+      };
+    }
+
+    return {
+      key,
+      type: "text" as const,
+      value: String(value),
+    };
   });
 
-  return await resp.json();
+  for (let attempt = 0; attempt <= TELEGRAM_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const retryFormData = new FormData();
+      for (const entry of entries) {
+        if (entry.type === "file") {
+          retryFormData.append(entry.key, entry.file, entry.file.name);
+        } else {
+          retryFormData.append(entry.key, entry.value);
+        }
+      }
+
+      const resp = await fetch(url, {
+        method: "POST",
+        body: retryFormData,
+      });
+      const result = await resp.json();
+
+      if (resp.ok || !RETRYABLE_TELEGRAM_STATUSES.has(resp.status) || attempt === TELEGRAM_RETRY_DELAYS_MS.length) {
+        return result;
+      }
+    } catch (error) {
+      if (attempt === TELEGRAM_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+    }
+
+    await delay(TELEGRAM_RETRY_DELAYS_MS[attempt]);
+  }
+
+  return { ok: false, description: "Telegram multipart request failed after retries" };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function translateText(text: string, targetLanguage: string, apiKey: string): Promise<string | null> {
