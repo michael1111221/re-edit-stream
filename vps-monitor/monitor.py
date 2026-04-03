@@ -75,7 +75,20 @@ RESOLVED_CHANNEL_HANDLES: dict[int, str] = {}
 RESOLVED_CHANNEL_ALIASES: dict[int, set[str]] = defaultdict(set)
 
 # How long to wait for more messages in a media group before sending (seconds)
-MEDIA_GROUP_WAIT = 1.5
+MEDIA_GROUP_WAIT = float(os.environ.get("MEDIA_GROUP_WAIT", "2.5"))
+
+# Throughput controls for large installations (hundreds of channels / thousands of posts)
+MAX_CONCURRENT_MEDIA_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_MEDIA_DOWNLOADS", "4"))
+MAX_CONCURRENT_BOT_UPLOADS = int(os.environ.get("MAX_CONCURRENT_BOT_UPLOADS", "4"))
+MAX_CONCURRENT_GROUP_ITEMS = int(os.environ.get("MAX_CONCURRENT_GROUP_ITEMS", "4"))
+MAX_CONCURRENT_INGEST_REQUESTS = int(os.environ.get("MAX_CONCURRENT_INGEST_REQUESTS", "8"))
+INGEST_QUEUE_MAXSIZE = int(os.environ.get("INGEST_QUEUE_MAXSIZE", "2000"))
+INGEST_TIMEOUT_SECONDS = int(os.environ.get("INGEST_TIMEOUT_SECONDS", "180"))
+INGEST_RETRIES = int(os.environ.get("INGEST_RETRIES", "4"))
+INGEST_RETRY_BASE_DELAY = float(os.environ.get("INGEST_RETRY_BASE_DELAY", "2"))
+HTTP_CONNECTION_LIMIT = int(os.environ.get("HTTP_CONNECTION_LIMIT", "100"))
+HTTP_CONNECTIONS_PER_HOST = int(os.environ.get("HTTP_CONNECTIONS_PER_HOST", "30"))
+RETRYABLE_INGEST_STATUSES = {408, 425, 429, 500, 502, 503, 504, 546}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,6 +102,11 @@ log = logging.getLogger("monitor")
 # { grouped_id: { "messages": [...], "handle": str, "timer": asyncio.TimerHandle } }
 media_group_buffer: dict[int, dict] = {}
 media_group_lock = asyncio.Lock()
+
+download_semaphore = asyncio.Semaphore(MAX_CONCURRENT_MEDIA_DOWNLOADS)
+bot_upload_semaphore = asyncio.Semaphore(MAX_CONCURRENT_BOT_UPLOADS)
+group_item_semaphore = asyncio.Semaphore(MAX_CONCURRENT_GROUP_ITEMS)
+ingest_queue: asyncio.Queue | None = None
 
 # Max file size to send as base64. Keep this low so the backend does not hit
 # compute limits while processing multipart uploads.
@@ -337,7 +355,8 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
     if not message.media:
         return None
     try:
-        return await client.download_media(message, bytes)
+        async with download_semaphore:
+            return await client.download_media(message, bytes)
     except Exception as e:
         log.error(f"Failed to download media: {e}")
         return None
@@ -372,42 +391,43 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
         form.add_field(field, media_bytes, filename=filename, content_type=mime_type)
 
         try:
-            async with http_session.post(f"{bot_api}/{method}", data=form, timeout=aiohttp.ClientTimeout(total=180)) as resp:
-                result = await resp.json()
-                if not result.get("ok"):
-                    err_desc = result.get('description', 'unknown')
-                    log.error(f"Bot API upload failed (attempt {attempt}/{retries}): {err_desc}")
-                    if attempt < retries:
-                        await asyncio.sleep(3)
-                        continue
-                    return None
+            async with bot_upload_semaphore:
+                async with http_session.post(f"{bot_api}/{method}", data=form, timeout=aiohttp.ClientTimeout(total=180)) as resp:
+                    result = await resp.json()
+                    if not result.get("ok"):
+                        err_desc = result.get('description', 'unknown')
+                        log.error(f"Bot API upload failed (attempt {attempt}/{retries}): {err_desc}")
+                        if attempt < retries:
+                            await asyncio.sleep(3)
+                            continue
+                        return None
 
-                msg_result = result["result"]
-                msg_id = msg_result["message_id"]
+                    msg_result = result["result"]
+                    msg_id = msg_result["message_id"]
 
-                # Extract file_id from the result
-                file_id = None
-                if media_type == "video" and msg_result.get("video"):
-                    file_id = msg_result["video"]["file_id"]
-                elif media_type == "photo" and msg_result.get("photo"):
-                    file_id = msg_result["photo"][-1]["file_id"]
-                elif media_type == "animation" and msg_result.get("animation"):
-                    file_id = msg_result["animation"]["file_id"]
-                elif msg_result.get("document"):
-                    file_id = msg_result["document"]["file_id"]
+                    # Extract file_id from the result
+                    file_id = None
+                    if media_type == "video" and msg_result.get("video"):
+                        file_id = msg_result["video"]["file_id"]
+                    elif media_type == "photo" and msg_result.get("photo"):
+                        file_id = msg_result["photo"][-1]["file_id"]
+                    elif media_type == "animation" and msg_result.get("animation"):
+                        file_id = msg_result["animation"]["file_id"]
+                    elif msg_result.get("document"):
+                        file_id = msg_result["document"]["file_id"]
 
-                # Delete the temporary message
-                try:
-                    await http_session.post(
-                        f"{bot_api}/deleteMessage",
-                        json={"chat_id": BOT_UPLOAD_CHAT, "message_id": msg_id},
-                    )
-                except Exception:
-                    pass
+                    # Delete the temporary message
+                    try:
+                        await http_session.post(
+                            f"{bot_api}/deleteMessage",
+                            json={"chat_id": BOT_UPLOAD_CHAT, "message_id": msg_id},
+                        )
+                    except Exception:
+                        pass
 
-                if file_id:
-                    log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
-                return file_id
+                    if file_id:
+                        log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
+                    return file_id
         except asyncio.TimeoutError:
             log.error(f"Bot API upload timed out (attempt {attempt}/{retries}) for {filename}")
             if attempt < retries:
@@ -498,22 +518,91 @@ def merge_unique_channels(*channel_lists: list[str]) -> list[str]:
     return merged
 
 
-async def send_to_ingest(session: aiohttp.ClientSession, payload: dict):
-    """POST the message payload to the ingest-post edge function."""
+async def send_to_ingest(session: aiohttp.ClientSession, payload: dict) -> bool:
+    """POST the message payload to the ingest-post edge function with retries/backoff."""
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {INGEST_API_KEY}",
     }
 
-    try:
-        async with session.post(INGEST_URL, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-            body = await resp.text()
-            if resp.status == 200:
-                log.info(f"✅ Ingested: {payload.get('source_channel_handle')} → {body}")
-            else:
+    for attempt in range(1, INGEST_RETRIES + 1):
+        try:
+            async with session.post(
+                INGEST_URL,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=INGEST_TIMEOUT_SECONDS),
+            ) as resp:
+                body = await resp.text()
+                if resp.status == 200:
+                    log.info(f"✅ Ingested: {payload.get('source_channel_handle')} → {body}")
+                    return True
+
+                if resp.status in RETRYABLE_INGEST_STATUSES and attempt < INGEST_RETRIES:
+                    delay = INGEST_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                    log.warning(
+                        "⚠️ Ingest returned %s (attempt %s/%s), retrying in %.1fs: %s",
+                        resp.status,
+                        attempt,
+                        INGEST_RETRIES,
+                        delay,
+                        body,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
                 log.warning(f"⚠️ Ingest returned {resp.status}: {body}")
-    except Exception as e:
-        log.error(f"❌ Failed to send to ingest: {e}")
+                return False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            if attempt < INGEST_RETRIES:
+                delay = INGEST_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                log.warning(
+                    "Ingest request failed (attempt %s/%s), retrying in %.1fs: %s",
+                    attempt,
+                    INGEST_RETRIES,
+                    delay,
+                    e,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            log.error(f"❌ Failed to send to ingest: {e}")
+            return False
+
+    return False
+
+
+async def enqueue_ingest(payload: dict):
+    """Queue payloads so message intake is not blocked by slow backend calls."""
+    if ingest_queue is None:
+        raise RuntimeError("Ingest queue not initialized")
+
+    pending = ingest_queue.qsize()
+    if pending >= max(100, INGEST_QUEUE_MAXSIZE // 2):
+        log.warning("Ingest queue pressure: %s/%s payloads pending", pending, INGEST_QUEUE_MAXSIZE)
+
+    await ingest_queue.put(payload)
+
+
+async def ingest_worker(worker_id: int, session: aiohttp.ClientSession):
+    """Drain queued ingest payloads with controlled concurrency."""
+    while True:
+        try:
+            payload = await ingest_queue.get()
+        except asyncio.CancelledError:
+            break
+
+        try:
+            ok = await send_to_ingest(session, payload)
+            if not ok:
+                log.error(
+                    "Worker %s dropped payload for %s (message_id=%s)",
+                    worker_id,
+                    payload.get("source_channel_handle"),
+                    payload.get("message_id"),
+                )
+        finally:
+            ingest_queue.task_done()
 
 
 async def get_channel_handle(client: TelegramClient, chat, chat_id: int | None = None) -> str:
@@ -606,19 +695,20 @@ async def prepare_media_item(client: TelegramClient, http_session: aiohttp.Clien
     }
 
     last_error = None
-    for attempt in range(1, retries + 1):
-        try:
-            media_payload = await get_media_payload(client, http_session, message, media_type)
-            if media_payload:
-                item.update(media_payload)
-                return item
-            last_error = "empty payload"
-        except Exception as e:
-            last_error = str(e)
-        
-        if attempt < retries:
-            log.warning(f"Media item prepare attempt {attempt} failed ({last_error}), retrying in 2s...")
-            await asyncio.sleep(2)
+    async with group_item_semaphore:
+        for attempt in range(1, retries + 1):
+            try:
+                media_payload = await get_media_payload(client, http_session, message, media_type)
+                if media_payload:
+                    item.update(media_payload)
+                    return item
+                last_error = "empty payload"
+            except Exception as e:
+                last_error = str(e)
+
+            if attempt < retries:
+                log.warning(f"Media item prepare attempt {attempt} failed ({last_error}), retrying in 2s...")
+                await asyncio.sleep(2)
 
     log.error(f"Failed to prepare media item after {retries} attempts: {last_error}")
     return None
@@ -663,24 +753,39 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
 
     first_message = messages[0]
     first_chat = await hydrate_chat_entity(client, await first_message.get_chat(), first_message.chat_id)
-    payload = {
+    base_payload = {
         "source_channel_handle": handle,
         "source_channel_aliases": get_channel_aliases(first_chat, first_message.chat_id),
         "source_channel_title": (getattr(first_chat, "title", None) or "").strip(),
         "message_id": first_message.id,
-        "text": group_caption,
-        "media_type": "media_group",
-        "media_group": items,
         "has_buttons": has_buttons,
     }
 
-    await send_to_ingest(http_session, payload)
+    if len(items) == 1:
+        single_item = items[0]
+        payload = {
+            **base_payload,
+            "text": group_caption or single_item.get("text", ""),
+            "media_type": single_item["media_type"],
+        }
+        payload.update({key: value for key, value in single_item.items() if key != "text"})
+        await enqueue_ingest(payload)
+        return
+
+    payload = {
+        **base_payload,
+        "text": group_caption,
+        "media_type": "media_group",
+        "media_group": items,
+    }
+
+    await enqueue_ingest(payload)
 
 
 # ── Main ────────────────────────────────────────────────────────────
 
 async def main():
-    global BOT_UPLOAD_CHAT
+    global BOT_UPLOAD_CHAT, ingest_queue
 
     if not API_ID or not API_HASH:
         log.error("Set TELEGRAM_API_ID and TELEGRAM_API_HASH environment variables")
@@ -695,7 +800,28 @@ async def main():
     me = await client.get_me()
     log.info(f"Logged in as {me.first_name} (ID: {me.id})")
 
-    http_session = aiohttp.ClientSession()
+    connector = aiohttp.TCPConnector(
+        limit=HTTP_CONNECTION_LIMIT,
+        limit_per_host=HTTP_CONNECTIONS_PER_HOST,
+        ttl_dns_cache=300,
+        enable_cleanup_closed=True,
+    )
+    http_session = aiohttp.ClientSession(
+        connector=connector,
+        timeout=aiohttp.ClientTimeout(total=INGEST_TIMEOUT_SECONDS),
+    )
+    ingest_queue = asyncio.Queue(maxsize=INGEST_QUEUE_MAXSIZE)
+    ingest_workers = [
+        asyncio.create_task(ingest_worker(index + 1, http_session))
+        for index in range(MAX_CONCURRENT_INGEST_REQUESTS)
+    ]
+    log.info(
+        "Ingest pipeline ready: workers=%s, queue=%s, downloads=%s, uploads=%s",
+        MAX_CONCURRENT_INGEST_REQUESTS,
+        INGEST_QUEUE_MAXSIZE,
+        MAX_CONCURRENT_MEDIA_DOWNLOADS,
+        MAX_CONCURRENT_BOT_UPLOADS,
+    )
 
     backend_channels, backend_upload_chat = await fetch_monitor_config(http_session)
     configured_channels = merge_unique_channels(MONITOR_CHANNELS, backend_channels)
@@ -719,7 +845,7 @@ async def main():
     else:
         log.warning("No source channels were loaded from MONITOR_CHANNELS or backend. Listening to ALL channels the user is in.")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     @client.on(events.NewMessage(chats=list(channel_ids) if channel_ids else None))
     async def handler(event):
@@ -782,11 +908,22 @@ async def main():
             media_payload = await get_media_payload(client, http_session, message, media_type)
             payload.update(media_payload)
 
-        await send_to_ingest(http_session, payload)
+        await enqueue_ingest(payload)
 
     log.info("🚀 Monitor is running. Press Ctrl+C to stop.")
-    await client.run_until_disconnected()
-    await http_session.close()
+    try:
+        await client.run_until_disconnected()
+    finally:
+        if ingest_queue is not None:
+            try:
+                await asyncio.wait_for(ingest_queue.join(), timeout=30)
+            except asyncio.TimeoutError:
+                log.warning("Timed out while waiting for ingest queue to drain on shutdown")
+
+        for worker in ingest_workers:
+            worker.cancel()
+        await asyncio.gather(*ingest_workers, return_exceptions=True)
+        await http_session.close()
 
 
 if __name__ == "__main__":
