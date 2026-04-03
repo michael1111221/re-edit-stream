@@ -336,10 +336,16 @@ async function processText(
     }
   }
 
-  // 2. Remove links
+  // 2. Remove links (including anchor text from embedded links)
   if (mapping.remove_links) {
     processedText = processedText
+      // Remove markdown-style links [text](url) — remove both text and URL
+      .replace(/\[([^\]]*)\]\(https?:\/\/[^)]+\)/g, "")
+      // Remove HTML-style links <a href="url">text</a> — remove both text and URL
+      .replace(/<a\s+[^>]*href\s*=\s*["'][^"']*["'][^>]*>[^<]*<\/a>/gi, "")
+      // Remove remaining bare URLs
       .replace(/https?:\/\/[^\s<]+/g, "")
+      // Clean up leftover whitespace
       .replace(/\s{2,}/g, " ")
       .trim();
   }
