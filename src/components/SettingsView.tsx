@@ -26,6 +26,79 @@ import { setWebhook, deleteWebhook, getBotInfo } from "@/lib/telegram";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
+function CatalogBotWebhook() {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<"idle" | "connected" | "error">("idle");
+  const catalogWebhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-bot`;
+
+  const handleConnect = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("telegram-bot", {
+        body: { action: "catalogSetWebhook", url: catalogWebhookUrl },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.ok) {
+        setStatus("connected");
+        toast({ title: "✅ Webhook בוט קטלוג חובר!" });
+      } else {
+        setStatus("error");
+        toast({ title: "שגיאה", description: data?.description, variant: "destructive" });
+      }
+    } catch (err: any) {
+      setStatus("error");
+      toast({ title: "שגיאה", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("telegram-bot", {
+        body: { action: "catalogDeleteWebhook" },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.ok) {
+        setStatus("idle");
+        toast({ title: "Webhook בוט קטלוג נותק" });
+      }
+    } catch (err: any) {
+      toast({ title: "שגיאה", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Webhook className="w-4 h-4 text-muted-foreground" />
+        <Label className="text-sm text-muted-foreground">Webhook URL</Label>
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="block text-xs bg-secondary p-2 rounded font-mono break-all flex-1" dir="ltr">
+          {catalogWebhookUrl}
+        </code>
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => { navigator.clipboard.writeText(catalogWebhookUrl); toast({ title: "הועתק!" }); }}>
+          <Copy className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      <div className="flex gap-2">
+        <Button onClick={handleConnect} size="sm" disabled={loading} className="gap-2">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : status === "connected" ? <CheckCircle2 className="w-4 h-4" /> : status === "error" ? <XCircle className="w-4 h-4" /> : <Webhook className="w-4 h-4" />}
+          {status === "connected" ? "מחובר ✓" : "חבר Webhook"}
+        </Button>
+        {status === "connected" && (
+          <Button onClick={handleDisconnect} variant="outline" size="sm" disabled={loading}>נתק</Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsView() {
   const { toast } = useToast();
   const [webhookLoading, setWebhookLoading] = useState(false);
