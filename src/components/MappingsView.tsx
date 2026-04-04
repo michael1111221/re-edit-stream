@@ -175,6 +175,7 @@ function MappingCard({
   if (mapping.add_signature) rules.push({ icon: FileSignature, label: "חתימה" });
   if (mapping.filter_banned_words) rules.push({ icon: ShieldBan, label: "סינון מילים" });
   if ((mapping as any).filter_buttons) rules.push({ icon: Link2Off, label: "סינון כפתורים" });
+  if ((mapping as any).strip_text) rules.push({ icon: FileSignature, label: "מדיה בלבד" });
 
   return (
     <motion.div
