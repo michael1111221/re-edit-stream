@@ -41,6 +41,7 @@ from telethon.tl.types import (
     DocumentAttributeVideo,
     DocumentAttributeAnimated,
     ReplyInlineMarkup,
+    ReplyKeyboardMarkup,
 )
 from telethon.utils import get_peer_id
 import aiohttp
