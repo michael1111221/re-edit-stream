@@ -27,6 +27,8 @@ import asyncio
 import logging
 import json
 import base64
+import shutil
+import tempfile
 from datetime import datetime
 from collections import defaultdict
 
@@ -89,6 +91,13 @@ INGEST_RETRY_BASE_DELAY = float(os.environ.get("INGEST_RETRY_BASE_DELAY", "2"))
 HTTP_CONNECTION_LIMIT = int(os.environ.get("HTTP_CONNECTION_LIMIT", "100"))
 HTTP_CONNECTIONS_PER_HOST = int(os.environ.get("HTTP_CONNECTIONS_PER_HOST", "30"))
 RETRYABLE_INGEST_STATUSES = {408, 425, 429, 500, 502, 503, 504, 546}
+
+# Video compression settings (for files exceeding Bot API 50MB limit)
+VIDEO_COMPRESS_ENABLED = os.environ.get("VIDEO_COMPRESS_ENABLED", "true").lower() in ("1", "true", "yes")
+VIDEO_COMPRESS_CRF = int(os.environ.get("VIDEO_COMPRESS_CRF", "28"))
+VIDEO_COMPRESS_MAX_SIZE_MB = int(os.environ.get("VIDEO_COMPRESS_MAX_SIZE_MB", "49"))
+VIDEO_COMPRESS_TIMEOUT = int(os.environ.get("VIDEO_COMPRESS_TIMEOUT", "300"))  # 5 min max
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -365,6 +374,78 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
 class FileTooLargeError(Exception):
     """Raised when a file exceeds the Telegram Bot API 50MB upload limit."""
     pass
+
+
+async def compress_video(media_bytes: bytes, filename: str, target_size_mb: int = None) -> bytes | None:
+    """Compress a video using ffmpeg to fit under the Bot API 50MB limit.
+    Returns compressed bytes or None if compression fails or ffmpeg is unavailable."""
+    if not shutil.which(FFMPEG_PATH):
+        log.warning("ffmpeg not found at '%s' — cannot compress video", FFMPEG_PATH)
+        return None
+
+    if target_size_mb is None:
+        target_size_mb = VIDEO_COMPRESS_MAX_SIZE_MB
+
+    original_mb = len(media_bytes) / (1024 * 1024)
+    log.info(f"🗜️ Compressing video {filename} ({original_mb:.1f}MB → target <{target_size_mb}MB, CRF={VIDEO_COMPRESS_CRF})")
+
+    tmp_dir = tempfile.mkdtemp(prefix="tg_compress_")
+    input_path = os.path.join(tmp_dir, f"input_{filename}")
+    output_path = os.path.join(tmp_dir, f"compressed_{filename}")
+    # Ensure output is mp4
+    if not output_path.lower().endswith(".mp4"):
+        output_path = output_path.rsplit(".", 1)[0] + ".mp4"
+
+    try:
+        with open(input_path, "wb") as f:
+            f.write(media_bytes)
+
+        # Two-pass would be better but single-pass CRF is faster and simpler
+        cmd = [
+            FFMPEG_PATH, "-y", "-i", input_path,
+            "-c:v", "libx264", "-preset", "fast", "-crf", str(VIDEO_COMPRESS_CRF),
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-max_muxing_queue_size", "1024",
+            output_path,
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=VIDEO_COMPRESS_TIMEOUT)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            log.error(f"ffmpeg compression timed out after {VIDEO_COMPRESS_TIMEOUT}s for {filename}")
+            return None
+
+        if process.returncode != 0:
+            log.error(f"ffmpeg failed (rc={process.returncode}) for {filename}: {stderr.decode()[-500:]}")
+            return None
+
+        if not os.path.exists(output_path):
+            log.error(f"ffmpeg produced no output for {filename}")
+            return None
+
+        compressed_size = os.path.getsize(output_path)
+        compressed_mb = compressed_size / (1024 * 1024)
+        log.info(f"🗜️ Compressed {filename}: {original_mb:.1f}MB → {compressed_mb:.1f}MB ({100 - compressed_mb/original_mb*100:.0f}% reduction)")
+
+        if compressed_mb > target_size_mb:
+            log.warning(f"Compressed video still too large ({compressed_mb:.1f}MB > {target_size_mb}MB) — skipping")
+            return None
+
+        with open(output_path, "rb") as f:
+            return f.read()
+    except Exception as e:
+        log.error(f"Video compression error for {filename}: {e}")
+        return None
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str, retries: int = 2) -> str | None:
@@ -685,8 +766,28 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
                 result["media_mime"] = mime_type
                 return result
         except FileTooLargeError as e:
-            log.warning(f"⚠️ {e} — skipping media attachment entirely")
-            return result  # return empty — caller will handle gracefully
+            # Try compressing if it's a video
+            if VIDEO_COMPRESS_ENABLED and media_type == "video":
+                log.info(f"⚠️ {e} — attempting ffmpeg compression")
+                compressed = await compress_video(media_bytes, filename)
+                if compressed:
+                    try:
+                        comp_filename = filename.rsplit(".", 1)[0] + ".mp4" if not filename.lower().endswith(".mp4") else filename
+                        file_id = await upload_to_bot_api(http_session, compressed, "video", comp_filename, "video/mp4")
+                        if file_id:
+                            result["media_file_id"] = file_id
+                            result["media_filename"] = comp_filename
+                            result["media_mime"] = "video/mp4"
+                            return result
+                    except FileTooLargeError:
+                        log.warning(f"Compressed video still too large for Bot API — skipping")
+                        return result
+                else:
+                    log.warning(f"Video compression failed — skipping media attachment")
+                    return result
+            else:
+                log.warning(f"⚠️ {e} — skipping media attachment entirely")
+                return result
 
         log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
 
