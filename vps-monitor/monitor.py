@@ -1019,8 +1019,10 @@ async def main():
         # Regular (non-grouped) message
         log.info(f"New post in {handle}: type={media_type}, text={message.text[:50] if message.text else '(no text)'}...")
 
-        # Detect inline buttons (ads)
-        has_buttons = isinstance(message.reply_markup, ReplyInlineMarkup)
+        # Detect inline buttons (ads) — any reply_markup means buttons are present
+        has_buttons = message.reply_markup is not None
+        if has_buttons:
+            log.info(f"Post has buttons: {type(message.reply_markup).__name__}")
 
         payload = {
             "source_channel_handle": handle,
