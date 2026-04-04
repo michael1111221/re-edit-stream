@@ -700,21 +700,10 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
 
     return result
 
-        log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
-
-    if len(media_bytes) <= MAX_BASE64_SIZE:
-        log.info(f"Sending media as base64 fallback ({len(media_bytes)} bytes)")
-        result["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
-        result["media_filename"] = filename
-        result["media_mime"] = mime_type
-    else:
-        log.warning(f"Media too large for base64 fallback ({len(media_bytes)} bytes), skipping media attachment")
-
-    return result
-
 
 async def prepare_media_item(client: TelegramClient, http_session: aiohttp.ClientSession, message, retries: int = 2) -> dict | None:
-    """Prepare a single media item dict for the media_group payload with retry logic."""
+    """Prepare a single media item dict for the media_group payload with retry logic.
+    Does NOT retry when the file exceeds the Bot API size limit (FileTooLargeError)."""
     media_type = classify_media(message)
     if media_type == "text":
         return None
@@ -733,6 +722,10 @@ async def prepare_media_item(client: TelegramClient, http_session: aiohttp.Clien
                     item.update(media_payload)
                     return item
                 last_error = "empty payload"
+            except FileTooLargeError as e:
+                # No point retrying — file will never fit in Bot API
+                log.warning(f"⚠️ Skipping oversized media item (msg_id={message.id}): {e}")
+                return None
             except Exception as e:
                 last_error = str(e)
 
