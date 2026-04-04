@@ -419,6 +419,29 @@ MONITOR_CHANNELS=@channel1,@channel2`}</pre>
         </div>
       </motion.div>
 
+      {/* Catalog Bot Settings */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.07 }}
+        className="rounded-lg border border-border bg-card p-5 shadow-card space-y-4"
+      >
+        <div className="flex items-center gap-2 text-foreground">
+          <Bot className="w-5 h-5 text-accent" />
+          <h3 className="font-medium">בוט קטלוג</h3>
+        </div>
+
+        <div className="space-y-3">
+          <div className="bg-secondary/50 rounded-lg p-3">
+            <p className="text-xs text-muted-foreground">
+              בוט הקטלוג מציג תפריט קטגוריות אינטראקטיבי למשתמשים. ודאו שה-Token הוגדר ב-Secrets ואז חברו את ה-Webhook.
+            </p>
+          </div>
+
+          <CatalogBotWebhook />
+        </div>
+      </motion.div>
+
       {/* Translation Settings */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
