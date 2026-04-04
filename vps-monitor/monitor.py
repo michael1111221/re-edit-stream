@@ -92,6 +92,13 @@ HTTP_CONNECTION_LIMIT = int(os.environ.get("HTTP_CONNECTION_LIMIT", "100"))
 HTTP_CONNECTIONS_PER_HOST = int(os.environ.get("HTTP_CONNECTIONS_PER_HOST", "30"))
 RETRYABLE_INGEST_STATUSES = {408, 425, 429, 500, 502, 503, 504, 546}
 
+# Video compression settings (for files exceeding Bot API 50MB limit)
+VIDEO_COMPRESS_ENABLED = os.environ.get("VIDEO_COMPRESS_ENABLED", "true").lower() in ("1", "true", "yes")
+VIDEO_COMPRESS_CRF = int(os.environ.get("VIDEO_COMPRESS_CRF", "28"))
+VIDEO_COMPRESS_MAX_SIZE_MB = int(os.environ.get("VIDEO_COMPRESS_MAX_SIZE_MB", "49"))
+VIDEO_COMPRESS_TIMEOUT = int(os.environ.get("VIDEO_COMPRESS_TIMEOUT", "300"))  # 5 min max
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
