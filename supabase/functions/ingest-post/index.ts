@@ -319,6 +319,15 @@ async function processText(
   originalText: string,
   lovableApiKey?: string
 ): Promise<string> {
+  // Strip text: return only signature (no original text)
+  if (mapping.strip_text) {
+    let result = "";
+    if (mapping.add_signature && mapping.signature_text) {
+      result = mapping.signature_text;
+    }
+    return result;
+  }
+
   let processedText = originalText;
 
   // 1. Banned words filter
