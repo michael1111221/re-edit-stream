@@ -376,6 +376,78 @@ class FileTooLargeError(Exception):
     pass
 
 
+async def compress_video(media_bytes: bytes, filename: str, target_size_mb: int = None) -> bytes | None:
+    """Compress a video using ffmpeg to fit under the Bot API 50MB limit.
+    Returns compressed bytes or None if compression fails or ffmpeg is unavailable."""
+    if not shutil.which(FFMPEG_PATH):
+        log.warning("ffmpeg not found at '%s' — cannot compress video", FFMPEG_PATH)
+        return None
+
+    if target_size_mb is None:
+        target_size_mb = VIDEO_COMPRESS_MAX_SIZE_MB
+
+    original_mb = len(media_bytes) / (1024 * 1024)
+    log.info(f"🗜️ Compressing video {filename} ({original_mb:.1f}MB → target <{target_size_mb}MB, CRF={VIDEO_COMPRESS_CRF})")
+
+    tmp_dir = tempfile.mkdtemp(prefix="tg_compress_")
+    input_path = os.path.join(tmp_dir, f"input_{filename}")
+    output_path = os.path.join(tmp_dir, f"compressed_{filename}")
+    # Ensure output is mp4
+    if not output_path.lower().endswith(".mp4"):
+        output_path = output_path.rsplit(".", 1)[0] + ".mp4"
+
+    try:
+        with open(input_path, "wb") as f:
+            f.write(media_bytes)
+
+        # Two-pass would be better but single-pass CRF is faster and simpler
+        cmd = [
+            FFMPEG_PATH, "-y", "-i", input_path,
+            "-c:v", "libx264", "-preset", "fast", "-crf", str(VIDEO_COMPRESS_CRF),
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-max_muxing_queue_size", "1024",
+            output_path,
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=VIDEO_COMPRESS_TIMEOUT)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            log.error(f"ffmpeg compression timed out after {VIDEO_COMPRESS_TIMEOUT}s for {filename}")
+            return None
+
+        if process.returncode != 0:
+            log.error(f"ffmpeg failed (rc={process.returncode}) for {filename}: {stderr.decode()[-500:]}")
+            return None
+
+        if not os.path.exists(output_path):
+            log.error(f"ffmpeg produced no output for {filename}")
+            return None
+
+        compressed_size = os.path.getsize(output_path)
+        compressed_mb = compressed_size / (1024 * 1024)
+        log.info(f"🗜️ Compressed {filename}: {original_mb:.1f}MB → {compressed_mb:.1f}MB ({100 - compressed_mb/original_mb*100:.0f}% reduction)")
+
+        if compressed_mb > target_size_mb:
+            log.warning(f"Compressed video still too large ({compressed_mb:.1f}MB > {target_size_mb}MB) — skipping")
+            return None
+
+        with open(output_path, "rb") as f:
+            return f.read()
+    except Exception as e:
+        log.error(f"Video compression error for {filename}: {e}")
+        return None
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str, retries: int = 2) -> str | None:
     """Upload a file to Telegram Bot API and return the file_id.
     Sends the file to a temporary bot-accessible chat, then deletes the message.
