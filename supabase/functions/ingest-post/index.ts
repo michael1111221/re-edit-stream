@@ -169,7 +169,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Ingest post from ${source_channel_handle}, type: ${media_type}`);
+    console.log(`Ingest post from ${source_channel_handle}, type: ${media_type}, has_buttons: ${has_buttons}`);
 
     const normalizeChannelReference = (value: string) => {
       const trimmed = String(value || "").trim().replace(/\/$/, "");

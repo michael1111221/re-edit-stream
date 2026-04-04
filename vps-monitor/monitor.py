@@ -41,6 +41,7 @@ from telethon.tl.types import (
     DocumentAttributeVideo,
     DocumentAttributeAnimated,
     ReplyInlineMarkup,
+    ReplyKeyboardMarkup,
 )
 from telethon.utils import get_peer_id
 import aiohttp
@@ -872,8 +873,11 @@ async def flush_media_group(group_id: int, client: TelegramClient, http_session:
         log.warning(f"No valid media items in group {group_id}")
         return
 
-    # Check if any message in the group has inline buttons
-    has_buttons = any(isinstance(m.reply_markup, ReplyInlineMarkup) for m in messages)
+    # Check if any message in the group has inline buttons (ads)
+    has_buttons = any(m.reply_markup is not None for m in messages)
+    if has_buttons:
+        markup_types = [type(m.reply_markup).__name__ for m in messages if m.reply_markup]
+        log.info(f"Media group {group_id} has buttons: {markup_types}")
 
     first_message = messages[0]
     first_chat = await hydrate_chat_entity(client, await first_message.get_chat(), first_message.chat_id)
@@ -1015,8 +1019,10 @@ async def main():
         # Regular (non-grouped) message
         log.info(f"New post in {handle}: type={media_type}, text={message.text[:50] if message.text else '(no text)'}...")
 
-        # Detect inline buttons (ads)
-        has_buttons = isinstance(message.reply_markup, ReplyInlineMarkup)
+        # Detect inline buttons (ads) — any reply_markup means buttons are present
+        has_buttons = message.reply_markup is not None
+        if has_buttons:
+            log.info(f"Post has buttons: {type(message.reply_markup).__name__}")
 
         payload = {
             "source_channel_handle": handle,
