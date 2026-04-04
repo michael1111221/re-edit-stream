@@ -175,6 +175,7 @@ function MappingCard({
   if (mapping.add_signature) rules.push({ icon: FileSignature, label: "חתימה" });
   if (mapping.filter_banned_words) rules.push({ icon: ShieldBan, label: "סינון מילים" });
   if ((mapping as any).filter_buttons) rules.push({ icon: Link2Off, label: "סינון כפתורים" });
+  if ((mapping as any).strip_text) rules.push({ icon: FileSignature, label: "מדיה בלבד" });
 
   return (
     <motion.div
@@ -307,6 +308,7 @@ function EditMappingDialog({
   const [signatureText, setSignatureText] = useState(mapping.signature_text || "");
   const [filterBanned, setFilterBanned] = useState(mapping.filter_banned_words);
   const [filterButtons, setFilterButtons] = useState((mapping as any).filter_buttons ?? false);
+  const [stripText, setStripText] = useState((mapping as any).strip_text ?? false);
   const [buttons, setButtons] = useState<{ text: string; url: string }[]>(
     (mapping.default_buttons as any[]) || []
   );
@@ -364,6 +366,7 @@ function EditMappingDialog({
       signature_text: signatureText,
       filter_banned_words: filterBanned,
       filter_buttons: filterButtons,
+      strip_text: stripText,
       default_buttons: buttons,
     });
   };
@@ -469,6 +472,15 @@ function EditMappingDialog({
                 placeholder="טקסט חתימה, לדוגמה: 📢 @mychannel"
               />
             )}
+          </div>
+
+          {/* Strip Text (media only) */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileSignature className="w-4 h-4 text-muted-foreground" />
+              <Label>העבר מדיה בלבד (ללא טקסט מקורי)</Label>
+            </div>
+            <Switch checked={stripText} onCheckedChange={setStripText} />
           </div>
 
           {/* Filter Buttons (ads) */}

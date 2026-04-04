@@ -135,6 +135,7 @@ export type Database = {
           remove_links: boolean
           signature_text: string | null
           source_channel_id: string
+          strip_text: boolean
           target_channel_id: string
           target_language: string
           updated_at: string
@@ -152,6 +153,7 @@ export type Database = {
           remove_links?: boolean
           signature_text?: string | null
           source_channel_id: string
+          strip_text?: boolean
           target_channel_id: string
           target_language?: string
           updated_at?: string
@@ -169,6 +171,7 @@ export type Database = {
           remove_links?: boolean
           signature_text?: string | null
           source_channel_id?: string
+          strip_text?: boolean
           target_channel_id?: string
           target_language?: string
           updated_at?: string
