@@ -663,7 +663,8 @@ async def get_channel_handle(client: TelegramClient, chat, chat_id: int | None =
 
 
 async def get_media_payload(client: TelegramClient, http_session: aiohttp.ClientSession, message, media_type: str) -> dict:
-    """Download media and return payload fields. Uses Bot API upload for large files."""
+    """Download media and return payload fields. Uses Bot API upload for large files.
+    Returns empty dict if media cannot be attached (e.g. file too large)."""
     result = {}
     if media_type == "text" or not message.file:
         return result
@@ -676,12 +677,28 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
     mime_type = message.file.mime_type or "application/octet-stream"
 
     if BOT_TOKEN:
-        file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
-        if file_id:
-            result["media_file_id"] = file_id
-            result["media_filename"] = filename
-            result["media_mime"] = mime_type
-            return result
+        try:
+            file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
+            if file_id:
+                result["media_file_id"] = file_id
+                result["media_filename"] = filename
+                result["media_mime"] = mime_type
+                return result
+        except FileTooLargeError as e:
+            log.warning(f"⚠️ {e} — skipping media attachment entirely")
+            return result  # return empty — caller will handle gracefully
+
+        log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
+
+    if len(media_bytes) <= MAX_BASE64_SIZE:
+        log.info(f"Sending media as base64 fallback ({len(media_bytes)} bytes)")
+        result["media_base64"] = base64.b64encode(media_bytes).decode("utf-8")
+        result["media_filename"] = filename
+        result["media_mime"] = mime_type
+    else:
+        log.warning(f"Media too large for base64 fallback ({len(media_bytes)} bytes), skipping media attachment")
+
+    return result
 
         log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
 
