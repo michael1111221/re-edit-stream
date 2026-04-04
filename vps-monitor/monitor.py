@@ -362,10 +362,15 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
         return None
 
 
+class FileTooLargeError(Exception):
+    """Raised when a file exceeds the Telegram Bot API 50MB upload limit."""
+    pass
+
+
 async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str, retries: int = 2) -> str | None:
     """Upload a file to Telegram Bot API and return the file_id.
     Sends the file to a temporary bot-accessible chat, then deletes the message.
-    Retries on failure."""
+    Raises FileTooLargeError on 413 so callers can skip without retrying."""
     if not BOT_TOKEN:
         log.warning("BOT_TOKEN not set, cannot upload via Bot API")
         return None
@@ -396,6 +401,12 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
                     result = await resp.json()
                     if not result.get("ok"):
                         err_desc = result.get('description', 'unknown')
+
+                        # 413 / "Request Entity Too Large" — file exceeds 50MB Bot API limit.
+                        # No point retrying; raise immediately so the caller can skip this item.
+                        if resp.status == 413 or "too large" in err_desc.lower() or "entity too large" in err_desc.lower():
+                            raise FileTooLargeError(f"File {filename} ({len(media_bytes)} bytes) exceeds Bot API limit: {err_desc}")
+
                         log.error(f"Bot API upload failed (attempt {attempt}/{retries}): {err_desc}")
                         if attempt < retries:
                             await asyncio.sleep(3)
@@ -428,6 +439,8 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
                     if file_id:
                         log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
                     return file_id
+        except FileTooLargeError:
+            raise  # propagate immediately — no retry
         except asyncio.TimeoutError:
             log.error(f"Bot API upload timed out (attempt {attempt}/{retries}) for {filename}")
             if attempt < retries:
@@ -650,7 +663,8 @@ async def get_channel_handle(client: TelegramClient, chat, chat_id: int | None =
 
 
 async def get_media_payload(client: TelegramClient, http_session: aiohttp.ClientSession, message, media_type: str) -> dict:
-    """Download media and return payload fields. Uses Bot API upload for large files."""
+    """Download media and return payload fields. Uses Bot API upload for large files.
+    Returns empty dict if media cannot be attached (e.g. file too large)."""
     result = {}
     if media_type == "text" or not message.file:
         return result
@@ -663,12 +677,16 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
     mime_type = message.file.mime_type or "application/octet-stream"
 
     if BOT_TOKEN:
-        file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
-        if file_id:
-            result["media_file_id"] = file_id
-            result["media_filename"] = filename
-            result["media_mime"] = mime_type
-            return result
+        try:
+            file_id = await upload_to_bot_api(http_session, media_bytes, media_type, filename, mime_type)
+            if file_id:
+                result["media_file_id"] = file_id
+                result["media_filename"] = filename
+                result["media_mime"] = mime_type
+                return result
+        except FileTooLargeError as e:
+            log.warning(f"⚠️ {e} — skipping media attachment entirely")
+            return result  # return empty — caller will handle gracefully
 
         log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
 
@@ -684,7 +702,8 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
 
 
 async def prepare_media_item(client: TelegramClient, http_session: aiohttp.ClientSession, message, retries: int = 2) -> dict | None:
-    """Prepare a single media item dict for the media_group payload with retry logic."""
+    """Prepare a single media item dict for the media_group payload with retry logic.
+    Does NOT retry when the file exceeds the Bot API size limit (FileTooLargeError)."""
     media_type = classify_media(message)
     if media_type == "text":
         return None
@@ -703,6 +722,10 @@ async def prepare_media_item(client: TelegramClient, http_session: aiohttp.Clien
                     item.update(media_payload)
                     return item
                 last_error = "empty payload"
+            except FileTooLargeError as e:
+                # No point retrying — file will never fit in Bot API
+                log.warning(f"⚠️ Skipping oversized media item (msg_id={message.id}): {e}")
+                return None
             except Exception as e:
                 last_error = str(e)
 
