@@ -766,8 +766,28 @@ async def get_media_payload(client: TelegramClient, http_session: aiohttp.Client
                 result["media_mime"] = mime_type
                 return result
         except FileTooLargeError as e:
-            log.warning(f"⚠️ {e} — skipping media attachment entirely")
-            return result  # return empty — caller will handle gracefully
+            # Try compressing if it's a video
+            if VIDEO_COMPRESS_ENABLED and media_type == "video":
+                log.info(f"⚠️ {e} — attempting ffmpeg compression")
+                compressed = await compress_video(media_bytes, filename)
+                if compressed:
+                    try:
+                        comp_filename = filename.rsplit(".", 1)[0] + ".mp4" if not filename.lower().endswith(".mp4") else filename
+                        file_id = await upload_to_bot_api(http_session, compressed, "video", comp_filename, "video/mp4")
+                        if file_id:
+                            result["media_file_id"] = file_id
+                            result["media_filename"] = comp_filename
+                            result["media_mime"] = "video/mp4"
+                            return result
+                    except FileTooLargeError:
+                        log.warning(f"Compressed video still too large for Bot API — skipping")
+                        return result
+                else:
+                    log.warning(f"Video compression failed — skipping media attachment")
+                    return result
+            else:
+                log.warning(f"⚠️ {e} — skipping media attachment entirely")
+                return result
 
         log.warning("Bot API upload failed for %s, falling back to base64 only for small files", filename)
 
