@@ -260,6 +260,38 @@ serve(async (req) => {
         break;
       }
 
+      case "catalogSetWebhook": {
+        const CATALOG_TOKEN = Deno.env.get("CATALOG_BOT_TOKEN");
+        if (!CATALOG_TOKEN) {
+          return new Response(
+            JSON.stringify({ error: "CATALOG_BOT_TOKEN not configured" }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const catalogBase = `${TELEGRAM_API}${CATALOG_TOKEN}`;
+        const resp = await fetch(`${catalogBase}/setWebhook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: params.url, allowed_updates: ["message", "callback_query"] }),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "catalogDeleteWebhook": {
+        const CATALOG_TOKEN2 = Deno.env.get("CATALOG_BOT_TOKEN");
+        if (!CATALOG_TOKEN2) {
+          return new Response(
+            JSON.stringify({ error: "CATALOG_BOT_TOKEN not configured" }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const catalogBase2 = `${TELEGRAM_API}${CATALOG_TOKEN2}`;
+        const resp = await fetch(`${catalogBase2}/deleteWebhook`);
+        result = await resp.json();
+        break;
+      }
+
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${action}` }),
