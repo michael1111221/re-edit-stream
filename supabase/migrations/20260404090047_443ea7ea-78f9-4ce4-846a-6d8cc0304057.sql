@@ -1,0 +1,1 @@
+ALTER TABLE public.channel_mappings ADD COLUMN strip_text boolean NOT NULL DEFAULT false;
