@@ -362,10 +362,15 @@ async def download_and_get_bytes(client: TelegramClient, message) -> bytes | Non
         return None
 
 
+class FileTooLargeError(Exception):
+    """Raised when a file exceeds the Telegram Bot API 50MB upload limit."""
+    pass
+
+
 async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: bytes, media_type: str, filename: str, mime_type: str, retries: int = 2) -> str | None:
     """Upload a file to Telegram Bot API and return the file_id.
     Sends the file to a temporary bot-accessible chat, then deletes the message.
-    Retries on failure."""
+    Raises FileTooLargeError on 413 so callers can skip without retrying."""
     if not BOT_TOKEN:
         log.warning("BOT_TOKEN not set, cannot upload via Bot API")
         return None
@@ -396,6 +401,12 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
                     result = await resp.json()
                     if not result.get("ok"):
                         err_desc = result.get('description', 'unknown')
+
+                        # 413 / "Request Entity Too Large" — file exceeds 50MB Bot API limit.
+                        # No point retrying; raise immediately so the caller can skip this item.
+                        if resp.status == 413 or "too large" in err_desc.lower() or "entity too large" in err_desc.lower():
+                            raise FileTooLargeError(f"File {filename} ({len(media_bytes)} bytes) exceeds Bot API limit: {err_desc}")
+
                         log.error(f"Bot API upload failed (attempt {attempt}/{retries}): {err_desc}")
                         if attempt < retries:
                             await asyncio.sleep(3)
@@ -428,6 +439,8 @@ async def upload_to_bot_api(http_session: aiohttp.ClientSession, media_bytes: by
                     if file_id:
                         log.info(f"Uploaded to Bot API, got file_id: {file_id[:20]}...")
                     return file_id
+        except FileTooLargeError:
+            raise  # propagate immediately — no retry
         except asyncio.TimeoutError:
             log.error(f"Bot API upload timed out (attempt {attempt}/{retries}) for {filename}")
             if attempt < retries:
