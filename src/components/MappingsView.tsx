@@ -366,6 +366,7 @@ function EditMappingDialog({
       signature_text: signatureText,
       filter_banned_words: filterBanned,
       filter_buttons: filterButtons,
+      strip_text: stripText,
       default_buttons: buttons,
     });
   };
