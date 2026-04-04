@@ -474,6 +474,15 @@ function EditMappingDialog({
             )}
           </div>
 
+          {/* Strip Text (media only) */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileSignature className="w-4 h-4 text-muted-foreground" />
+              <Label>העבר מדיה בלבד (ללא טקסט מקורי)</Label>
+            </div>
+            <Switch checked={stripText} onCheckedChange={setStripText} />
+          </div>
+
           {/* Filter Buttons (ads) */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
