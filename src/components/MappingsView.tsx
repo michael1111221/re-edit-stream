@@ -308,6 +308,7 @@ function EditMappingDialog({
   const [signatureText, setSignatureText] = useState(mapping.signature_text || "");
   const [filterBanned, setFilterBanned] = useState(mapping.filter_banned_words);
   const [filterButtons, setFilterButtons] = useState((mapping as any).filter_buttons ?? false);
+  const [stripText, setStripText] = useState((mapping as any).strip_text ?? false);
   const [buttons, setButtons] = useState<{ text: string; url: string }[]>(
     (mapping.default_buttons as any[]) || []
   );
