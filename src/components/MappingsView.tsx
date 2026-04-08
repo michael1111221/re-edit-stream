@@ -76,8 +76,8 @@ export function MappingsView({ channels }: MappingsViewProps) {
   });
 
   const updateMapping = useMutation({
-    mutationFn: async ({ id, ...updates }: { id: string } & Record<string, any>) => {
-      const { error } = await supabase.from("channel_mappings").update(updates).eq("id", id);
+    mutationFn: async ({ id, ...updates }: { id: string; [key: string]: any }) => {
+      const { error } = await supabase.from("channel_mappings").update(updates as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
