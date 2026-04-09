@@ -32,17 +32,82 @@ serve(async (req) => {
     const chatId = message.chat.id;
     const text = message.text.trim();
 
+    // ── Owner verification ─────────────────────────────────────────
+    // Only the bot owner (stored in system_settings as "bot_owner_chat_id")
+    // can access sensitive commands. Non-owners get a generic message.
+    const { data: ownerSetting } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "bot_owner_chat_id")
+      .maybeSingle();
+
+    let ownerChatId: number | null = null;
+    if (ownerSetting?.value) {
+      const val = ownerSetting.value;
+      if (typeof val === "number") ownerChatId = val;
+      else if (typeof val === "string") ownerChatId = parseInt(val, 10);
+      else if (typeof val === "object" && val !== null && "chat_id" in val) {
+        ownerChatId = parseInt(String((val as any).chat_id), 10);
+      }
+    }
+
+    const isOwner = ownerChatId !== null && chatId === ownerChatId;
+
+    // /start is the only command available to everyone (sets owner on first use)
     if (text === "/start") {
+      // If no owner is set yet, register the first user as owner
+      if (ownerChatId === null) {
+        await supabase
+          .from("system_settings")
+          .upsert({ key: "bot_owner_chat_id", value: chatId }, { onConflict: "key" });
+        
+        await sendTelegramMessage(baseUrl, chatId,
+          "🤖 <b>ברוך הבא ל-TeleFlow Bot!</b>\n\n" +
+          "✅ נרשמת כבעל הבוט.\n\n" +
+          "הפקודות הזמינות:\n\n" +
+          "/channels - רשימת ערוצים\n" +
+          "/mappings - מיפויים פעילים\n" +
+          "/stats - סטטיסטיקות\n" +
+          "/scheduled - פרסומים מתוזמנים\n" +
+          "/myid - הצג את ה-Chat ID שלך\n" +
+          "/help - עזרה"
+        );
+      } else if (isOwner) {
+        await sendTelegramMessage(baseUrl, chatId,
+          "🤖 <b>ברוך הבא ל-TeleFlow Bot!</b>\n\n" +
+          "הפקודות הזמינות:\n\n" +
+          "/channels - רשימת ערוצים\n" +
+          "/mappings - מיפויים פעילים\n" +
+          "/stats - סטטיסטיקות\n" +
+          "/scheduled - פרסומים מתוזמנים\n" +
+          "/myid - הצג את ה-Chat ID שלך\n" +
+          "/help - עזרה"
+        );
+      } else {
+        await sendTelegramMessage(baseUrl, chatId,
+          "🤖 <b>TeleFlow Bot</b>\n\n" +
+          "⛔ אין לך הרשאה להשתמש בבוט זה."
+        );
+      }
+      return new Response("OK");
+    }
+
+    // /myid is available to everyone
+    if (text === "/myid") {
+      await sendTelegramMessage(baseUrl, chatId, `🆔 ה-Chat ID שלך: <code>${chatId}</code>`);
+      return new Response("OK");
+    }
+
+    // All other commands require owner verification
+    if (!isOwner) {
       await sendTelegramMessage(baseUrl, chatId,
-        "🤖 <b>ברוך הבא ל-TeleFlow Bot!</b>\n\n" +
-        "הפקודות הזמינות:\n\n" +
-        "/channels - רשימת ערוצים\n" +
-        "/mappings - מיפויים פעילים\n" +
-        "/stats - סטטיסטיקות\n" +
-        "/scheduled - פרסומים מתוזמנים\n" +
-        "/help - עזרה"
+        "⛔ אין לך הרשאה להשתמש בפקודה זו."
       );
-    } else if (text === "/channels") {
+      return new Response("OK");
+    }
+
+    // ── Owner-only commands ────────────────────────────────────────
+    if (text === "/channels") {
       const { data: channels } = await supabase.from("channels").select("*").order("type");
       if (!channels || channels.length === 0) {
         await sendTelegramMessage(baseUrl, chatId, "📢 אין ערוצים מוגדרים עדיין.");
@@ -123,6 +188,7 @@ serve(async (req) => {
         "/mappings - מיפויים פעילים\n" +
         "/stats - סטטיסטיקות\n" +
         "/scheduled - פרסומים מתוזמנים\n" +
+        "/myid - הצג את ה-Chat ID שלך\n" +
         "/help - עזרה"
       );
     } else {
