@@ -7,10 +7,12 @@ import {
   Zap,
   Send,
   Route,
-  BookOpen
+  BookOpen,
+  LogOut
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SidebarNavProps {
   currentPage: PageView;
@@ -72,11 +74,18 @@ export function SidebarNav({ currentPage, onNavigate, onPublish }: SidebarNavPro
         </button>
       </div>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-success animate-pulse-glow" />
           <span className="text-xs text-muted-foreground">מערכת פעילה</span>
         </div>
+        <button
+          onClick={() => supabase.auth.signOut()}
+          className="text-muted-foreground hover:text-destructive transition-colors"
+          title="התנתק"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </aside>
   );
