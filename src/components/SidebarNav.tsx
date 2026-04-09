@@ -7,10 +7,12 @@ import {
   Zap,
   Send,
   Route,
-  BookOpen
+  BookOpen,
+  LogOut
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SidebarNavProps {
   currentPage: PageView;
