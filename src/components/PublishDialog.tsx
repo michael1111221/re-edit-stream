@@ -214,18 +214,35 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1]); // strip data:...;base64, prefix
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const sendToChannel = async (channelHandle: string, validButtons: InlineButton[]) => {
     if (attachedFile) {
       const fileType = getFileType(attachedFile);
       const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
-      const formData = new FormData();
-      formData.append("action", actionMap[fileType]);
-      formData.append("chat_id", channelHandle);
-      formData.append("file", attachedFile);
-      if (caption.trim()) formData.append("caption", caption);
-      if (validButtons.length > 0) formData.append("inline_buttons", JSON.stringify(validButtons));
+      const base64Data = await fileToBase64(attachedFile);
 
-      const { data, error } = await supabase.functions.invoke("telegram-bot", { body: formData });
+      const { data, error } = await supabase.functions.invoke("telegram-bot", {
+        body: {
+          action: actionMap[fileType],
+          chat_id: channelHandle,
+          file_base64: base64Data,
+          file_name: attachedFile.name,
+          file_type: attachedFile.type,
+          caption: caption.trim() || undefined,
+          inline_buttons: validButtons.length > 0 ? validButtons : undefined,
+        },
+      });
       if (error) throw new Error(error.message);
       return data;
     } else {
