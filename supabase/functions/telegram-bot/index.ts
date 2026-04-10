@@ -25,7 +25,7 @@ serve(async (req) => {
   try {
     const contentType = req.headers.get("content-type") || "";
 
-    // Handle multipart/form-data for file uploads
+    // Handle multipart/form-data for file uploads (legacy)
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
       const action = formData.get("action") as string;
@@ -37,7 +37,6 @@ serve(async (req) => {
         );
       }
 
-      // Build Telegram FormData
       const tgForm = new FormData();
       const chatId = formData.get("chat_id") as string;
       tgForm.append("chat_id", chatId);
@@ -48,7 +47,6 @@ serve(async (req) => {
         tgForm.append("parse_mode", "HTML");
       }
 
-      // Handle inline buttons
       const buttonsJson = formData.get("inline_buttons") as string;
       if (buttonsJson) {
         try {
@@ -74,16 +72,10 @@ serve(async (req) => {
       let endpoint: string;
       let fieldName: string;
 
-      if (action === "sendPhoto") {
-        endpoint = "sendPhoto";
-        fieldName = "photo";
-      } else if (action === "sendVideo") {
-        endpoint = "sendVideo";
-        fieldName = "video";
-      } else if (action === "sendDocument") {
-        endpoint = "sendDocument";
-        fieldName = "document";
-      } else {
+      if (action === "sendPhoto") { endpoint = "sendPhoto"; fieldName = "photo"; }
+      else if (action === "sendVideo") { endpoint = "sendVideo"; fieldName = "video"; }
+      else if (action === "sendDocument") { endpoint = "sendDocument"; fieldName = "document"; }
+      else {
         return new Response(
           JSON.stringify({ error: `Unsupported file action: ${action}` }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -92,19 +84,53 @@ serve(async (req) => {
 
       tgForm.append(fieldName, file, file.name);
 
-      const resp = await fetch(`${baseUrl}/${endpoint}`, {
-        method: "POST",
-        body: tgForm,
-      });
+      const resp = await fetch(`${baseUrl}/${endpoint}`, { method: "POST", body: tgForm });
       const result = await resp.json();
-
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Handle JSON requests (existing logic)
-    const { action, ...params } = await req.json();
+    // Handle JSON requests
+    const body = await req.json();
+    const { action, ...params } = body;
+
+    // Handle base64 file uploads
+    if (params.file_base64 && (action === "sendPhoto" || action === "sendVideo" || action === "sendDocument")) {
+      const fileBytes = Uint8Array.from(atob(params.file_base64), c => c.charCodeAt(0));
+      const fileName = params.file_name || "file";
+      const fileType = params.file_type || "application/octet-stream";
+      const blob = new Blob([fileBytes], { type: fileType });
+
+      const tgForm = new FormData();
+      tgForm.append("chat_id", params.chat_id);
+
+      if (params.caption) {
+        tgForm.append("caption", params.caption);
+        tgForm.append("parse_mode", "HTML");
+      }
+
+      if (params.inline_buttons && Array.isArray(params.inline_buttons) && params.inline_buttons.length > 0) {
+        tgForm.append("reply_markup", JSON.stringify({
+          inline_keyboard: params.inline_buttons.map((btn: { text: string; url: string }) => [
+            { text: btn.text, url: btn.url },
+          ]),
+        }));
+      }
+
+      let fieldName: string;
+      if (action === "sendPhoto") fieldName = "photo";
+      else if (action === "sendVideo") fieldName = "video";
+      else fieldName = "document";
+
+      tgForm.append(fieldName, blob, fileName);
+
+      const resp = await fetch(`${baseUrl}/${action}`, { method: "POST", body: tgForm });
+      const result = await resp.json();
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Build reply_markup from inline_buttons if provided
     let reply_markup: any = undefined;
