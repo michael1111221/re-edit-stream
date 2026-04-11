@@ -214,31 +214,26 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
   };
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(",")[1]); // strip data:...;base64, prefix
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  const uploadFileToStorage = async (file: File): Promise<string> => {
+    const ext = file.name.split(".").pop() || "bin";
+    const path = `publish/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage.from("temp-uploads").upload(path, file);
+    if (error) throw new Error("שגיאה בהעלאת קובץ: " + error.message);
+    const { data: urlData } = supabase.storage.from("temp-uploads").getPublicUrl(path);
+    return urlData.publicUrl;
   };
 
-  const sendToChannel = async (channelHandle: string, validButtons: InlineButton[]) => {
-    if (attachedFile) {
+  const sendToChannel = async (channelHandle: string, validButtons: InlineButton[], fileUrl?: string) => {
+    if (fileUrl && attachedFile) {
       const fileType = getFileType(attachedFile);
       const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
-      const base64Data = await fileToBase64(attachedFile);
+      const fieldMap = { photo: "photo", video: "video", document: "document" };
 
       const { data, error } = await supabase.functions.invoke("telegram-bot", {
         body: {
           action: actionMap[fileType],
           chat_id: channelHandle,
-          file_base64: base64Data,
-          file_name: attachedFile.name,
-          file_type: attachedFile.type,
+          [fieldMap[fileType]]: fileUrl,
           caption: caption.trim() || undefined,
           inline_buttons: validButtons.length > 0 ? validButtons : undefined,
         },
