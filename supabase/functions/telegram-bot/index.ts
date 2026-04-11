@@ -95,43 +95,6 @@ serve(async (req) => {
     const body = await req.json();
     const { action, ...params } = body;
 
-    // Handle base64 file uploads
-    if (params.file_base64 && (action === "sendPhoto" || action === "sendVideo" || action === "sendDocument")) {
-      const fileBytes = Uint8Array.from(atob(params.file_base64), c => c.charCodeAt(0));
-      const fileName = params.file_name || "file";
-      const fileType = params.file_type || "application/octet-stream";
-      const blob = new Blob([fileBytes], { type: fileType });
-
-      const tgForm = new FormData();
-      tgForm.append("chat_id", params.chat_id);
-
-      if (params.caption) {
-        tgForm.append("caption", params.caption);
-        tgForm.append("parse_mode", "HTML");
-      }
-
-      if (params.inline_buttons && Array.isArray(params.inline_buttons) && params.inline_buttons.length > 0) {
-        tgForm.append("reply_markup", JSON.stringify({
-          inline_keyboard: params.inline_buttons.map((btn: { text: string; url: string }) => [
-            { text: btn.text, url: btn.url },
-          ]),
-        }));
-      }
-
-      let fieldName: string;
-      if (action === "sendPhoto") fieldName = "photo";
-      else if (action === "sendVideo") fieldName = "video";
-      else fieldName = "document";
-
-      tgForm.append(fieldName, blob, fileName);
-
-      const resp = await fetch(`${baseUrl}/${action}`, { method: "POST", body: tgForm });
-      const result = await resp.json();
-      return new Response(JSON.stringify(result), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     // Build reply_markup from inline_buttons if provided
     let reply_markup: any = undefined;
     if (params.inline_buttons && Array.isArray(params.inline_buttons) && params.inline_buttons.length > 0) {
