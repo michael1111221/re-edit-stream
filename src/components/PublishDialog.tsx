@@ -195,6 +195,25 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     return "document";
   };
 
+  const handleTranslate = async () => {
+    if (!caption.trim()) return;
+    setIsTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("translate-caption", {
+        body: { text: caption, target_language: "Hebrew" },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.translated) {
+        setCaption(data.translated);
+        toast({ title: "✅ תורגם בהצלחה!" });
+      }
+    } catch (err: any) {
+      toast({ title: "שגיאת תרגום", description: err.message, variant: "destructive" });
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const maybeCompressImage = async (file: File): Promise<File> => {
     if (!file.type.startsWith("image/") || file.size <= 9.5 * 1024 * 1024) return file;
 
