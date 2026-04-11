@@ -308,6 +308,18 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     let failCount = 0;
     const updatedMessageIds = { ...lastMessageIds };
 
+    // Upload file once if attached
+    let fileUrl: string | undefined;
+    if (attachedFile) {
+      try {
+        fileUrl = await uploadFileToStorage(attachedFile);
+      } catch (err: any) {
+        toast({ title: "שגיאה בהעלאת קובץ", description: err.message, variant: "destructive" });
+        setIsSending(false);
+        return;
+      }
+    }
+
     for (const handle of selectedChannels) {
       try {
         // Delete previous message if toggle is on
@@ -319,7 +331,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           }
         }
 
-        const result = await sendToChannel(handle, validButtons);
+        const result = await sendToChannel(handle, validButtons, fileUrl);
         if (result.ok) {
           successCount++;
           // Save the new message_id
