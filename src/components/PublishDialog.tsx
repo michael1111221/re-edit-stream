@@ -214,10 +214,48 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
   };
 
+  const maybeCompressImage = async (file: File): Promise<File> => {
+    if (!file.type.startsWith("image/") || file.size <= 9.5 * 1024 * 1024) return file;
+
+    const imgUrl = URL.createObjectURL(file);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = imgUrl;
+      });
+
+      const maxWidth = 1920;
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return file;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.82)
+      );
+
+      if (!blob || blob.size >= file.size) return file;
+      return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+    } finally {
+      URL.revokeObjectURL(imgUrl);
+    }
+  };
+
   const uploadFileToStorage = async (file: File): Promise<string> => {
-    const ext = file.name.split(".").pop() || "bin";
-    const path = `publish/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from("temp-uploads").upload(path, file);
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (!userId) throw new Error("המשתמש לא מחובר");
+
+    const preparedFile = await maybeCompressImage(file);
+    const ext = preparedFile.name.split(".").pop() || "bin";
+    const path = `${userId}/publish/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage.from("temp-uploads").upload(path, preparedFile);
     if (error) throw new Error("שגיאה בהעלאת קובץ: " + error.message);
     const { data: urlData } = supabase.storage.from("temp-uploads").getPublicUrl(path);
     return urlData.publicUrl;
@@ -229,7 +267,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
       const fieldMap = { photo: "photo", video: "video", document: "document" };
 
-      const { data, error } = await supabase.functions.invoke("telegram-bot", {
+      let { data, error } = await supabase.functions.invoke("telegram-bot", {
         body: {
           action: actionMap[fileType],
           chat_id: channelHandle,
@@ -238,6 +276,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           inline_buttons: validButtons.length > 0 ? validButtons : undefined,
         },
       });
+
+      if (!error && data?.ok === false && fileType === "photo") {
+        const retry = await supabase.functions.invoke("telegram-bot", {
+          body: {
+            action: "sendDocument",
+            chat_id: channelHandle,
+            document: fileUrl,
+            caption: caption.trim() || undefined,
+            inline_buttons: validButtons.length > 0 ? validButtons : undefined,
+          },
+        });
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) throw new Error(error.message);
       return data;
     } else {

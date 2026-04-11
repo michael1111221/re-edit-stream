@@ -7,6 +7,73 @@ const corsHeaders = {
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
+const isHttpUrl = (value: unknown): value is string =>
+  typeof value === "string" && /^https?:\/\//i.test(value);
+
+const buildReplyMarkup = (inlineButtons: unknown) => {
+  if (!Array.isArray(inlineButtons) || inlineButtons.length === 0) return undefined;
+
+  return {
+    inline_keyboard: inlineButtons.map((btn: { text: string; url: string }) => [
+      { text: btn.text, url: btn.url },
+    ]),
+  };
+};
+
+const appendCaptionAndButtons = (form: FormData, params: Record<string, any>, replyMarkup?: unknown) => {
+  form.append("chat_id", params.chat_id);
+
+  if (params.caption) {
+    form.append("caption", params.caption);
+    form.append("parse_mode", params.parse_mode || "HTML");
+  }
+
+  if (replyMarkup) {
+    form.append("reply_markup", JSON.stringify(replyMarkup));
+  }
+};
+
+const inferFileName = (url: string, fallback: string) => {
+  try {
+    const path = new URL(url).pathname;
+    const name = path.split("/").pop();
+    return name && name.includes(".") ? name : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+async function sendMediaFromUrl(
+  baseUrl: string,
+  action: "sendPhoto" | "sendVideo" | "sendDocument",
+  mediaField: "photo" | "video" | "document",
+  mediaUrl: string,
+  params: Record<string, any>,
+  replyMarkup?: unknown,
+) {
+  const mediaResponse = await fetch(mediaUrl);
+  if (!mediaResponse.ok) {
+    throw new Error(`Failed to download media URL: ${mediaResponse.status}`);
+  }
+
+  const contentType = mediaResponse.headers.get("content-type") || "application/octet-stream";
+  const fallbackName = action === "sendPhoto" ? "image.jpg" : action === "sendVideo" ? "video.mp4" : "file";
+  const fileName = inferFileName(mediaUrl, fallbackName);
+  const mediaBlob = await mediaResponse.blob();
+  const normalizedBlob = new Blob([mediaBlob], { type: contentType });
+
+  const tgForm = new FormData();
+  appendCaptionAndButtons(tgForm, params, replyMarkup);
+  tgForm.append(mediaField, normalizedBlob, fileName);
+
+  const resp = await fetch(`${baseUrl}/${action}`, {
+    method: "POST",
+    body: tgForm,
+  });
+
+  return await resp.json();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,7 +92,6 @@ serve(async (req) => {
   try {
     const contentType = req.headers.get("content-type") || "";
 
-    // Handle multipart/form-data for file uploads (legacy)
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
       const action = formData.get("action") as string;
@@ -51,12 +117,9 @@ serve(async (req) => {
       if (buttonsJson) {
         try {
           const buttons = JSON.parse(buttonsJson);
-          if (Array.isArray(buttons) && buttons.length > 0) {
-            tgForm.append("reply_markup", JSON.stringify({
-              inline_keyboard: buttons.map((btn: { text: string; url: string }) => [
-                { text: btn.text, url: btn.url },
-              ]),
-            }));
+          const replyMarkup = buildReplyMarkup(buttons);
+          if (replyMarkup) {
+            tgForm.append("reply_markup", JSON.stringify(replyMarkup));
           }
         } catch (_) {}
       }
@@ -91,19 +154,9 @@ serve(async (req) => {
       });
     }
 
-    // Handle JSON requests
     const body = await req.json();
     const { action, ...params } = body;
-
-    // Build reply_markup from inline_buttons if provided
-    let reply_markup: any = undefined;
-    if (params.inline_buttons && Array.isArray(params.inline_buttons) && params.inline_buttons.length > 0) {
-      reply_markup = {
-        inline_keyboard: params.inline_buttons.map((btn: { text: string; url: string }) => [
-          { text: btn.text, url: btn.url },
-        ]),
-      };
-    }
+    const reply_markup = buildReplyMarkup(params.inline_buttons);
 
     let result;
 
@@ -115,6 +168,11 @@ serve(async (req) => {
       }
 
       case "sendVideo": {
+        if (isHttpUrl(params.video)) {
+          result = await sendMediaFromUrl(baseUrl, "sendVideo", "video", params.video, params, reply_markup);
+          break;
+        }
+
         const body: any = {
           chat_id: params.chat_id,
           video: params.video,
@@ -133,6 +191,11 @@ serve(async (req) => {
       }
 
       case "sendPhoto": {
+        if (isHttpUrl(params.photo)) {
+          result = await sendMediaFromUrl(baseUrl, "sendPhoto", "photo", params.photo, params, reply_markup);
+          break;
+        }
+
         const body: any = {
           chat_id: params.chat_id,
           photo: params.photo,
@@ -142,6 +205,29 @@ serve(async (req) => {
         if (reply_markup) body.reply_markup = reply_markup;
 
         const resp = await fetch(`${baseUrl}/sendPhoto`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendDocument": {
+        if (isHttpUrl(params.document)) {
+          result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", params.document, params, reply_markup);
+          break;
+        }
+
+        const body: any = {
+          chat_id: params.chat_id,
+          document: params.document,
+          caption: params.caption || "",
+          parse_mode: params.parse_mode || "HTML",
+        };
+        if (reply_markup) body.reply_markup = reply_markup;
+
+        const resp = await fetch(`${baseUrl}/sendDocument`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
