@@ -433,6 +433,19 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
 
       setIsSending(true);
       try {
+        // Upload file if attached for scheduled post
+        let fileUrl: string | undefined;
+        let mediaType: string | undefined;
+        if (attachedFile) {
+          fileUrl = await uploadFileToStorage(attachedFile);
+          mediaType = getFileType(attachedFile);
+        } else if (templateMediaUrl) {
+          fileUrl = templateMediaUrl;
+          mediaType = templateMediaType || undefined;
+        }
+
+        const validButtons = inlineButtons.filter(b => b.text && b.url);
+
         const inserts = selectedChannels.map(handle => {
           const ch = channels.find(c => c.handle === handle);
           return {
@@ -440,6 +453,9 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             channel_id: ch?.id || null,
             scheduled_for: scheduledFor.toISOString(),
             video_id: null,
+            media_url: fileUrl || null,
+            media_type: mediaType || null,
+            inline_buttons: validButtons.length > 0 ? validButtons : [],
           };
         });
         const { error } = await supabase.from("scheduled_posts").insert(inserts);

@@ -3,6 +3,59 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
+async function sendMediaFromUrl(
+  baseUrl: string,
+  action: string,
+  fieldName: string,
+  mediaUrl: string,
+  params: Record<string, any>,
+  replyMarkup?: any
+) {
+  // Try sending by URL first
+  const body: any = {
+    ...params,
+    [fieldName]: mediaUrl,
+  };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+
+  let resp = await fetch(`${baseUrl}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let result = await resp.json();
+
+  if (result.ok) return result;
+
+  // Fallback: download and upload as multipart
+  console.log(`URL send failed for ${action}, trying multipart upload...`);
+  try {
+    const fileResp = await fetch(mediaUrl);
+    if (!fileResp.ok) return result;
+    const fileBlob = await fileResp.blob();
+    
+    const fallbackName = action === "sendPhoto" ? "image.jpg" : 
+                         action === "sendAnimation" ? "animation.mp4" : "file";
+
+    const formData = new FormData();
+    formData.append(fieldName, fileBlob, fallbackName);
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null) formData.append(k, String(v));
+    }
+    if (replyMarkup) formData.append("reply_markup", JSON.stringify(replyMarkup));
+
+    resp = await fetch(`${baseUrl}/${action}`, {
+      method: "POST",
+      body: formData,
+    });
+    result = await resp.json();
+  } catch (e) {
+    console.error("Multipart fallback failed:", e);
+  }
+
+  return result;
+}
+
 serve(async (req) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -37,30 +90,71 @@ serve(async (req) => {
       for (const post of duePosts) {
         try {
           const channel = post.channel;
-          // Use telegram_chat_id for private channels, fall back to handle
           let chatId = channel?.telegram_chat_id?.trim() || channel?.handle;
           if (!chatId) {
             console.error(`No channel handle for post ${post.id}`);
             continue;
           }
-          // Auto-fix numeric IDs without -100 prefix
           if (/^\d{6,}$/.test(chatId)) {
             chatId = `-100${chatId}`;
           }
 
-          const body: any = {
-            chat_id: chatId,
-            text: `<b>${post.title}</b>`,
-            parse_mode: "HTML",
-          };
+          const inlineButtons: any[] = (post.inline_buttons as any) || [];
+          const replyMarkup = inlineButtons.length > 0
+            ? {
+                inline_keyboard: inlineButtons
+                  .filter((b: any) => b.text && b.url)
+                  .map((b: any) => [{ text: b.text, url: b.url }]),
+              }
+            : undefined;
 
-          const resp = await fetch(`${baseUrl}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
+          let result: any;
 
-          const result = await resp.json();
+          if (post.media_url && post.media_type) {
+            // Send with media
+            const actionMap: Record<string, string> = {
+              photo: "sendPhoto",
+              video: "sendAnimation",
+              document: "sendDocument",
+            };
+            const fieldMap: Record<string, string> = {
+              photo: "photo",
+              video: "animation",
+              document: "document",
+            };
+
+            const action = actionMap[post.media_type] || "sendDocument";
+            const field = fieldMap[post.media_type] || "document";
+
+            const params: Record<string, any> = {
+              chat_id: chatId,
+              caption: post.title || undefined,
+              parse_mode: "HTML",
+            };
+
+            result = await sendMediaFromUrl(baseUrl, action, field, post.media_url, params, replyMarkup);
+
+            // Fallback: if photo fails, try as document
+            if (!result.ok && post.media_type === "photo") {
+              console.log(`Photo failed, retrying as document for post ${post.id}`);
+              result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", post.media_url, params, replyMarkup);
+            }
+          } else {
+            // Text only
+            const body: any = {
+              chat_id: chatId,
+              text: post.title || "פרסום מתוזמן",
+              parse_mode: "HTML",
+            };
+            if (replyMarkup) body.reply_markup = replyMarkup;
+
+            const resp = await fetch(`${baseUrl}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            result = await resp.json();
+          }
 
           if (result.ok) {
             await supabase
@@ -88,29 +182,24 @@ serve(async (req) => {
     }
 
     if (recurringSchedules && recurringSchedules.length > 0) {
-      // Current time in Israel timezone
       const nowDate = new Date();
       const israelTime = new Date(nowDate.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
-      const currentDay = israelTime.getDay(); // 0=Sunday
+      const currentDay = israelTime.getDay();
       const currentHour = israelTime.getHours();
       const currentMinute = israelTime.getMinutes();
-      const currentTimeStr = `${String(currentHour).padStart(2, "0")}:${String(currentMinute).padStart(2, "0")}`;
 
       for (const schedule of recurringSchedules) {
         try {
           const days: number[] = schedule.days_of_week || [];
           const timeOfDay: string = schedule.time_of_day || "12:00";
 
-          // Check if today is a scheduled day
           if (!days.includes(currentDay)) continue;
 
-          // Check if it's the right time (within 2 minute window)
           const [schedH, schedM] = timeOfDay.split(":").map(Number);
           const schedMinutes = schedH * 60 + schedM;
           const nowMinutes = currentHour * 60 + currentMinute;
           if (Math.abs(nowMinutes - schedMinutes) > 1) continue;
 
-          // Check if already ran today
           if (schedule.last_run_at) {
             const lastRun = new Date(schedule.last_run_at);
             const lastRunIsrael = new Date(lastRun.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
@@ -119,7 +208,7 @@ serve(async (req) => {
               lastRunIsrael.getMonth() === israelTime.getMonth() &&
               lastRunIsrael.getDate() === israelTime.getDate()
             ) {
-              continue; // Already ran today
+              continue;
             }
           }
 
@@ -162,7 +251,6 @@ serve(async (req) => {
             }
           }
 
-          // Mark as ran today
           await supabase
             .from("recurring_schedules")
             .update({ last_run_at: new Date().toISOString() })
