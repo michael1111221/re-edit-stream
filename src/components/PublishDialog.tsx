@@ -380,11 +380,12 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
 
     for (const handle of selectedChannels) {
+      const resolvedChatId = resolveChatId(handle);
       try {
         // Delete previous message if toggle is on
         if (deleteBeforePublish && lastMessageIds[handle]) {
           try {
-            await deleteMessage(handle, lastMessageIds[handle]);
+            await deleteMessage(resolvedChatId, lastMessageIds[handle]);
           } catch (err) {
             console.warn(`Could not delete last message in ${handle}:`, err);
           }
