@@ -93,6 +93,7 @@ const Index = () => {
                 onDelete={(id) => deleteScheduledPost.mutate(id, {
                   onSuccess: () => toast({ title: "פרסום מתוזמן נמחק" }),
                 })}
+                onRefresh={() => queryClient.invalidateQueries({ queryKey: ["scheduled_posts"] })}
               />
             )}
             {currentPage === "settings" && (
