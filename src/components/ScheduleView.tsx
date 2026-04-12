@@ -14,6 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Play,
   Trash2,
   Edit3,
@@ -47,13 +54,20 @@ interface ScheduleViewProps {
   schedule: ScheduledPost[];
   channels?: Channel[];
   onDelete?: (id: string) => void;
+  onRefresh?: () => void;
 }
 
-export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleViewProps) {
+export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: ScheduleViewProps) {
   const { toast } = useToast();
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
+  const [showEditPostDialog, setShowEditPostDialog] = useState(false);
+  const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
+  const [editPostTitle, setEditPostTitle] = useState("");
+  const [editPostDate, setEditPostDate] = useState("");
+  const [editPostTime, setEditPostTime] = useState("");
+  const [editPostChannel, setEditPostChannel] = useState<string>("");
 
   // Form state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -157,6 +171,34 @@ export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleView
 
   const toggleDay = (day: number) => {
     setRDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort());
+  };
+
+  const openEditPost = (post: ScheduledPost) => {
+    setEditingPost(post);
+    setEditPostTitle(post.title);
+    const d = new Date(post.scheduled_for);
+    setEditPostDate(format(d, "yyyy-MM-dd"));
+    setEditPostTime(format(d, "HH:mm"));
+    setEditPostChannel(post.channel_id || "");
+    setShowEditPostDialog(true);
+  };
+
+  const saveEditPost = async () => {
+    if (!editingPost) return;
+    const scheduledFor = new Date(`${editPostDate}T${editPostTime}:00`);
+    const { error } = await supabase.from("scheduled_posts").update({
+      title: editPostTitle,
+      scheduled_for: scheduledFor.toISOString(),
+      channel_id: editPostChannel || null,
+    }).eq("id", editingPost.id);
+    if (error) {
+      toast({ title: "שגיאה", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "✅ פרסום מתוזמן עודכן" });
+    setShowEditPostDialog(false);
+    setEditingPost(null);
+    onRefresh?.();
   };
 
   const grouped = schedule.reduce<Record<string, ScheduledPost[]>>((acc, post) => {
@@ -268,7 +310,7 @@ export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleView
                       </div>
 
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                        <button onClick={() => openEditPost(post)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
@@ -357,6 +399,51 @@ export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleView
             <Button onClick={saveRecurring} className="w-full gradient-primary text-primary-foreground gap-2">
               <Repeat className="w-4 h-4" />
               {editingId ? "עדכן תזמון" : "צור תזמון חוזר"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Scheduled Post Dialog */}
+      <Dialog open={showEditPostDialog} onOpenChange={setShowEditPostDialog}>
+        <DialogContent className="bg-card border-border max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground flex items-center gap-2">
+              <Edit3 className="w-5 h-5 text-primary" />
+              עריכת פרסום מתוזמן
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm text-muted-foreground">טקסט</Label>
+              <Textarea value={editPostTitle} onChange={e => setEditPostTitle(e.target.value)} className="mt-1 bg-secondary border-border min-h-[60px]" />
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">ערוץ</Label>
+              <Select value={editPostChannel} onValueChange={setEditPostChannel}>
+                <SelectTrigger className="mt-1 bg-secondary border-border">
+                  <SelectValue placeholder="בחר ערוץ" />
+                </SelectTrigger>
+                <SelectContent>
+                  {targetChannels.map(ch => (
+                    <SelectItem key={ch.id} value={ch.id}>{ch.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <Label className="text-sm text-muted-foreground">תאריך</Label>
+                <Input type="date" value={editPostDate} onChange={e => setEditPostDate(e.target.value)} className="mt-1 bg-secondary border-border" dir="ltr" />
+              </div>
+              <div className="w-28">
+                <Label className="text-sm text-muted-foreground">שעה</Label>
+                <Input type="time" value={editPostTime} onChange={e => setEditPostTime(e.target.value)} className="mt-1 bg-secondary border-border" dir="ltr" />
+              </div>
+            </div>
+            <Button onClick={saveEditPost} className="w-full gradient-primary text-primary-foreground gap-2">
+              <Edit3 className="w-4 h-4" />
+              עדכן פרסום
             </Button>
           </div>
         </DialogContent>

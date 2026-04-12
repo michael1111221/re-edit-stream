@@ -36,10 +36,16 @@ serve(async (req) => {
 
       for (const post of duePosts) {
         try {
-          const chatId = post.channel?.handle;
+          const channel = post.channel;
+          // Use telegram_chat_id for private channels, fall back to handle
+          let chatId = channel?.telegram_chat_id?.trim() || channel?.handle;
           if (!chatId) {
             console.error(`No channel handle for post ${post.id}`);
             continue;
+          }
+          // Auto-fix numeric IDs without -100 prefix
+          if (/^\d{6,}$/.test(chatId)) {
+            chatId = `-100${chatId}`;
           }
 
           const body: any = {
