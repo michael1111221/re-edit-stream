@@ -137,6 +137,7 @@ serve(async (req) => {
 
       if (action === "sendPhoto") { endpoint = "sendPhoto"; fieldName = "photo"; }
       else if (action === "sendVideo") { endpoint = "sendVideo"; fieldName = "video"; }
+      else if (action === "sendAnimation") { endpoint = "sendAnimation"; fieldName = "animation"; }
       else if (action === "sendDocument") { endpoint = "sendDocument"; fieldName = "document"; }
       else {
         return new Response(
