@@ -46,6 +46,8 @@ interface Template {
   caption: string;
   channel_handles: string[];
   inline_buttons: InlineButton[];
+  media_url: string | null;
+  media_type: string | null;
 }
 
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
@@ -64,6 +66,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [inlineButtons, setInlineButtons] = useState<InlineButton[]>([]);
   const [deleteBeforePublish, setDeleteBeforePublish] = useState(false);
   const [lastMessageIds, setLastMessageIds] = useState<Record<string, number>>({});
+  const [templateMediaUrl, setTemplateMediaUrl] = useState<string | null>(null);
+  const [templateMediaType, setTemplateMediaType] = useState<string | null>(null);
 
   // Templates
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -106,6 +110,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         caption: t.caption,
         channel_handles: (t.channel_handles as any) || [],
         inline_buttons: (t.inline_buttons as any) || [],
+        media_url: (t as any).media_url || null,
+        media_type: (t as any).media_type || null,
       })));
     }
   };
@@ -115,12 +121,28 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       toast({ title: "הזן שם לתבנית", variant: "destructive" });
       return;
     }
+
+    let mediaUrl: string | null = null;
+    let mediaType: string | null = null;
+
+    if (attachedFile) {
+      try {
+        mediaUrl = await uploadFileToStorage(attachedFile);
+        mediaType = getFileType(attachedFile);
+      } catch (err: any) {
+        toast({ title: "שגיאה בהעלאת מדיה לתבנית", description: err.message, variant: "destructive" });
+        return;
+      }
+    }
+
     const { error } = await supabase.from("post_templates").insert({
       name: templateName,
       caption,
       channel_handles: selectedChannels as unknown as Json,
       inline_buttons: inlineButtons as unknown as Json,
-    });
+      media_url: mediaUrl,
+      media_type: mediaType,
+    } as any);
     if (error) {
       toast({ title: "שגיאה בשמירה", description: error.message, variant: "destructive" });
       return;
@@ -137,6 +159,19 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     setCaption(t.caption);
     setSelectedChannels(t.channel_handles);
     setInlineButtons(t.inline_buttons);
+
+    // Load saved media
+    removeFile();
+    if (t.media_url) {
+      setFilePreview(t.media_type === "photo" ? t.media_url : null);
+      // Create a placeholder reference so sendToChannel uses the saved URL
+      setTemplateMediaUrl(t.media_url);
+      setTemplateMediaType(t.media_type);
+    } else {
+      setTemplateMediaUrl(null);
+      setTemplateMediaType(null);
+    }
+
     toast({ title: `📋 תבנית "${t.name}" נטענה` });
   };
 
@@ -292,10 +327,10 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     return chatId;
   };
 
-  const sendToChannel = async (channelHandle: string, validButtons: InlineButton[], fileUrl?: string) => {
+  const sendToChannel = async (channelHandle: string, validButtons: InlineButton[], fileUrl?: string, mediaType?: string) => {
     const chatId = resolveChatId(channelHandle);
-    if (fileUrl && attachedFile) {
-      const fileType = getFileType(attachedFile);
+    if (fileUrl) {
+      const fileType = mediaType as "photo" | "video" | "document" || (attachedFile ? getFileType(attachedFile) : "document");
       // Videos are sent as animations (GIF) for auto-play without sound
       const actionMap = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
       const fieldMap = { photo: "photo", video: "animation", document: "document" };
@@ -394,16 +429,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     let failCount = 0;
     const updatedMessageIds = { ...lastMessageIds };
 
-    // Upload file once if attached
+    // Upload file once if attached, or use template media
     let fileUrl: string | undefined;
+    let mediaType: string | undefined;
     if (attachedFile) {
       try {
         fileUrl = await uploadFileToStorage(attachedFile);
+        mediaType = getFileType(attachedFile);
       } catch (err: any) {
         toast({ title: "שגיאה בהעלאת קובץ", description: err.message, variant: "destructive" });
         setIsSending(false);
         return;
       }
+    } else if (templateMediaUrl) {
+      fileUrl = templateMediaUrl;
+      mediaType = templateMediaType || undefined;
     }
 
     for (const handle of selectedChannels) {
@@ -418,7 +458,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           }
         }
 
-        const result = await sendToChannel(handle, validButtons, fileUrl);
+        const result = await sendToChannel(handle, validButtons, fileUrl, mediaType);
         if (result.ok) {
           successCount++;
           const msgId = result.result?.message_id || result.result?.message_id;
@@ -462,6 +502,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     setScheduleDate(undefined);
     setScheduleTime("12:00");
     setInlineButtons([]);
+    setTemplateMediaUrl(null);
+    setTemplateMediaType(null);
   };
 
   return (
@@ -609,7 +651,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             </Label>
             {attachedFile ? (
               <div className="relative rounded-lg border border-border bg-secondary p-3">
-                <button type="button" onClick={removeFile}
+                <button type="button" onClick={() => { removeFile(); setTemplateMediaUrl(null); setTemplateMediaType(null); }}
                   className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
                   <X className="w-3 h-3" />
                 </button>
@@ -622,6 +664,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                       <p className="font-medium">{attachedFile.name}</p>
                       <p className="text-xs text-muted-foreground">{(attachedFile.size / 1024 / 1024).toFixed(1)} MB</p>
                     </div>
+                  </div>
+                )}
+              </div>
+            ) : templateMediaUrl ? (
+              <div className="relative rounded-lg border border-border bg-secondary p-3">
+                <button type="button" onClick={() => { setTemplateMediaUrl(null); setTemplateMediaType(null); setFilePreview(null); }}
+                  className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
+                  <X className="w-3 h-3" />
+                </button>
+                {templateMediaType === "photo" ? (
+                  <img src={templateMediaUrl} alt="מדיה מתבנית" className="w-full max-h-40 object-contain rounded" />
+                ) : (
+                  <div className="flex items-center gap-3 text-sm text-foreground">
+                    {templateMediaType === "video" ? <FileVideo className="w-8 h-8 text-primary" /> : <FileImage className="w-8 h-8 text-primary" />}
+                    <p className="font-medium text-muted-foreground">מדיה מתבנית שמורה</p>
                   </div>
                 )}
               </div>
