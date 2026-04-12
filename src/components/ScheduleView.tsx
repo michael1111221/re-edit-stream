@@ -47,13 +47,20 @@ interface ScheduleViewProps {
   schedule: ScheduledPost[];
   channels?: Channel[];
   onDelete?: (id: string) => void;
+  onRefresh?: () => void;
 }
 
-export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleViewProps) {
+export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: ScheduleViewProps) {
   const { toast } = useToast();
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
+  const [showEditPostDialog, setShowEditPostDialog] = useState(false);
+  const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
+  const [editPostTitle, setEditPostTitle] = useState("");
+  const [editPostDate, setEditPostDate] = useState("");
+  const [editPostTime, setEditPostTime] = useState("");
+  const [editPostChannel, setEditPostChannel] = useState<string>("");
 
   // Form state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -157,6 +164,34 @@ export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleView
 
   const toggleDay = (day: number) => {
     setRDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort());
+  };
+
+  const openEditPost = (post: ScheduledPost) => {
+    setEditingPost(post);
+    setEditPostTitle(post.title);
+    const d = new Date(post.scheduled_for);
+    setEditPostDate(format(d, "yyyy-MM-dd"));
+    setEditPostTime(format(d, "HH:mm"));
+    setEditPostChannel(post.channel_id || "");
+    setShowEditPostDialog(true);
+  };
+
+  const saveEditPost = async () => {
+    if (!editingPost) return;
+    const scheduledFor = new Date(`${editPostDate}T${editPostTime}:00`);
+    const { error } = await supabase.from("scheduled_posts").update({
+      title: editPostTitle,
+      scheduled_for: scheduledFor.toISOString(),
+      channel_id: editPostChannel || null,
+    }).eq("id", editingPost.id);
+    if (error) {
+      toast({ title: "שגיאה", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "✅ פרסום מתוזמן עודכן" });
+    setShowEditPostDialog(false);
+    setEditingPost(null);
+    onRefresh?.();
   };
 
   const grouped = schedule.reduce<Record<string, ScheduledPost[]>>((acc, post) => {
@@ -268,7 +303,7 @@ export function ScheduleView({ schedule, channels = [], onDelete }: ScheduleView
                       </div>
 
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                        <button onClick={() => openEditPost(post)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
