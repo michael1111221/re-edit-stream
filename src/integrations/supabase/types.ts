@@ -318,6 +318,9 @@ export type Database = {
           channel_id: string | null
           created_at: string
           id: string
+          inline_buttons: Json
+          media_type: string | null
+          media_url: string | null
           published: boolean
           scheduled_for: string
           title: string
@@ -327,6 +330,9 @@ export type Database = {
           channel_id?: string | null
           created_at?: string
           id?: string
+          inline_buttons?: Json
+          media_type?: string | null
+          media_url?: string | null
           published?: boolean
           scheduled_for: string
           title: string
@@ -336,6 +342,9 @@ export type Database = {
           channel_id?: string | null
           created_at?: string
           id?: string
+          inline_buttons?: Json
+          media_type?: string | null
+          media_url?: string | null
           published?: boolean
           scheduled_for?: string
           title?: string
