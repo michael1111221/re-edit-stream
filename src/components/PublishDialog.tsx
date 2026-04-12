@@ -66,6 +66,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [inlineButtons, setInlineButtons] = useState<InlineButton[]>([]);
   const [deleteBeforePublish, setDeleteBeforePublish] = useState(false);
   const [lastMessageIds, setLastMessageIds] = useState<Record<string, number>>({});
+  const [templateMediaUrl, setTemplateMediaUrl] = useState<string | null>(null);
+  const [templateMediaType, setTemplateMediaType] = useState<string | null>(null);
 
   // Templates
   const [templates, setTemplates] = useState<Template[]>([]);
