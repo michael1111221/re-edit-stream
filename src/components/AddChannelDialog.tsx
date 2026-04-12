@@ -31,7 +31,12 @@ export function AddChannelDialog({ open, onOpenChange, onAdd }: AddChannelDialog
   const [isValidating, setIsValidating] = useState(false);
 
   const normalizedHandle = handle.trim();
-  const normalizedChatId = telegramChatId.trim();
+  // Auto-prepend -100 if user enters just the numeric part
+  const normalizedChatId = (() => {
+    const raw = telegramChatId.trim();
+    if (/^\d{6,}$/.test(raw)) return `-100${raw}`;
+    return raw;
+  })();
   const isPrivateInviteLink = useMemo(
     () => /^https?:\/\/t\.me\/\+/i.test(normalizedHandle),
     [normalizedHandle]
