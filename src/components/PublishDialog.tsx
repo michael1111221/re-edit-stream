@@ -296,8 +296,9 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     const chatId = resolveChatId(channelHandle);
     if (fileUrl && attachedFile) {
       const fileType = getFileType(attachedFile);
-      const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
-      const fieldMap = { photo: "photo", video: "video", document: "document" };
+      // Videos are sent as animations (GIF) for auto-play without sound
+      const actionMap = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
+      const fieldMap = { photo: "photo", video: "animation", document: "document" };
 
       let { data, error } = await supabase.functions.invoke("telegram-bot", {
         body: {

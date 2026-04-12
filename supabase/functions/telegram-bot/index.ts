@@ -137,6 +137,7 @@ serve(async (req) => {
 
       if (action === "sendPhoto") { endpoint = "sendPhoto"; fieldName = "photo"; }
       else if (action === "sendVideo") { endpoint = "sendVideo"; fieldName = "video"; }
+      else if (action === "sendAnimation") { endpoint = "sendAnimation"; fieldName = "animation"; }
       else if (action === "sendDocument") { endpoint = "sendDocument"; fieldName = "document"; }
       else {
         return new Response(
@@ -182,6 +183,29 @@ serve(async (req) => {
         if (reply_markup) body.reply_markup = reply_markup;
 
         const resp = await fetch(`${baseUrl}/sendVideo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendAnimation": {
+        if (isHttpUrl(params.animation)) {
+          result = await sendMediaFromUrl(baseUrl, "sendAnimation", "document", params.animation, params, reply_markup);
+          break;
+        }
+
+        const body: any = {
+          chat_id: params.chat_id,
+          animation: params.animation,
+          caption: params.caption || "",
+          parse_mode: params.parse_mode || "HTML",
+        };
+        if (reply_markup) body.reply_markup = reply_markup;
+
+        const resp = await fetch(`${baseUrl}/sendAnimation`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
