@@ -14,6 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Play,
   Trash2,
   Edit3,
@@ -392,6 +399,51 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
             <Button onClick={saveRecurring} className="w-full gradient-primary text-primary-foreground gap-2">
               <Repeat className="w-4 h-4" />
               {editingId ? "עדכן תזמון" : "צור תזמון חוזר"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Scheduled Post Dialog */}
+      <Dialog open={showEditPostDialog} onOpenChange={setShowEditPostDialog}>
+        <DialogContent className="bg-card border-border max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground flex items-center gap-2">
+              <Edit3 className="w-5 h-5 text-primary" />
+              עריכת פרסום מתוזמן
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm text-muted-foreground">טקסט</Label>
+              <Textarea value={editPostTitle} onChange={e => setEditPostTitle(e.target.value)} className="mt-1 bg-secondary border-border min-h-[60px]" />
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">ערוץ</Label>
+              <Select value={editPostChannel} onValueChange={setEditPostChannel}>
+                <SelectTrigger className="mt-1 bg-secondary border-border">
+                  <SelectValue placeholder="בחר ערוץ" />
+                </SelectTrigger>
+                <SelectContent>
+                  {targetChannels.map(ch => (
+                    <SelectItem key={ch.id} value={ch.id}>{ch.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <Label className="text-sm text-muted-foreground">תאריך</Label>
+                <Input type="date" value={editPostDate} onChange={e => setEditPostDate(e.target.value)} className="mt-1 bg-secondary border-border" dir="ltr" />
+              </div>
+              <div className="w-28">
+                <Label className="text-sm text-muted-foreground">שעה</Label>
+                <Input type="time" value={editPostTime} onChange={e => setEditPostTime(e.target.value)} className="mt-1 bg-secondary border-border" dir="ltr" />
+              </div>
+            </div>
+            <Button onClick={saveEditPost} className="w-full gradient-primary text-primary-foreground gap-2">
+              <Edit3 className="w-4 h-4" />
+              עדכן פרסום
             </Button>
           </div>
         </DialogContent>
