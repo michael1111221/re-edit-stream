@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Channel } from "@/types/dashboard";
-import { sendMessageToChannel, InlineButton, deleteMessage } from "@/lib/telegram";
+import { sendMessageToChannel, InlineButton, deleteMessage, getChatInfo } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen, RotateCcw } from "lucide-react";
@@ -263,7 +263,28 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
 
   const resolveChatId = (channelHandle: string): string => {
     const ch = channels.find(c => c.handle === channelHandle);
-    return ch?.telegram_chat_id || channelHandle;
+    return ch?.telegram_chat_id?.trim() || channelHandle;
+  };
+
+  const validateChannelBeforePublish = async (channelHandle: string): Promise<string> => {
+    const ch = channels.find(c => c.handle === channelHandle);
+    const chatId = resolveChatId(channelHandle);
+    const isPrivateInviteLink = /^https?:\/\/t\.me\/\+/i.test(ch?.handle || "");
+
+    if (isPrivateInviteLink && !ch?.telegram_chat_id?.trim()) {
+      throw new Error(`לערוץ "${ch?.name || channelHandle}" חסר Chat ID של ערוץ פרטי.`);
+    }
+
+    if (isPrivateInviteLink && !/^\-100\d{6,}$/.test(chatId)) {
+      throw new Error(`ה-Chat ID של "${ch?.name || channelHandle}" חייב להתחיל ב--100. כרגע נשמר מזהה שלא נראה כמו ערוץ פרטי.`);
+    }
+
+    const info = await getChatInfo(chatId);
+    if (!info.ok) {
+      throw new Error(`הבוט לא מצליח לגשת לערוץ "${ch?.name || channelHandle}". ודא שזה ה-Chat ID של הערוץ עצמו ושהבוט חבר או אדמין בערוץ.`);
+    }
+
+    return chatId;
   };
 
   const sendToChannel = async (channelHandle: string, validButtons: InlineButton[], fileUrl?: string) => {
@@ -380,9 +401,9 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
 
     for (const handle of selectedChannels) {
-      const resolvedChatId = resolveChatId(handle);
       try {
-        // Delete previous message if toggle is on
+        const resolvedChatId = await validateChannelBeforePublish(handle);
+
         if (deleteBeforePublish && lastMessageIds[handle]) {
           try {
             await deleteMessage(resolvedChatId, lastMessageIds[handle]);
@@ -394,7 +415,6 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         const result = await sendToChannel(handle, validButtons, fileUrl);
         if (result.ok) {
           successCount++;
-          // Save the new message_id
           const msgId = result.result?.message_id || result.result?.message_id;
           if (msgId) {
             updatedMessageIds[handle] = msgId;
@@ -402,10 +422,12 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         } else {
           failCount++;
           console.error(`Failed to publish to ${handle}:`, result.description);
+          toast({ title: "שגיאה בפרסום", description: result.description || `השליחה נכשלה עבור ${handle}`, variant: "destructive" });
         }
-      } catch (err) {
+      } catch (err: any) {
         failCount++;
         console.error(`Error publishing to ${handle}:`, err);
+        toast({ title: "שגיאה בפרסום", description: err.message || `השליחה נכשלה עבור ${handle}`, variant: "destructive" });
       }
     }
 

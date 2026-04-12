@@ -111,6 +111,7 @@ const Index = () => {
               setAddChannelOpen(false);
               toast({ title: "ערוץ נוסף בהצלחה" });
             },
+            onError: (err) => toast({ title: "שגיאה בהוספת ערוץ", description: err.message, variant: "destructive" }),
           });
         }}
       />
