@@ -651,7 +651,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             </Label>
             {attachedFile ? (
               <div className="relative rounded-lg border border-border bg-secondary p-3">
-                <button type="button" onClick={removeFile}
+                <button type="button" onClick={() => { removeFile(); setTemplateMediaUrl(null); setTemplateMediaType(null); }}
                   className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
                   <X className="w-3 h-3" />
                 </button>
@@ -664,6 +664,21 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                       <p className="font-medium">{attachedFile.name}</p>
                       <p className="text-xs text-muted-foreground">{(attachedFile.size / 1024 / 1024).toFixed(1)} MB</p>
                     </div>
+                  </div>
+                )}
+              </div>
+            ) : templateMediaUrl ? (
+              <div className="relative rounded-lg border border-border bg-secondary p-3">
+                <button type="button" onClick={() => { setTemplateMediaUrl(null); setTemplateMediaType(null); setFilePreview(null); }}
+                  className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
+                  <X className="w-3 h-3" />
+                </button>
+                {templateMediaType === "photo" ? (
+                  <img src={templateMediaUrl} alt="מדיה מתבנית" className="w-full max-h-40 object-contain rounded" />
+                ) : (
+                  <div className="flex items-center gap-3 text-sm text-foreground">
+                    {templateMediaType === "video" ? <FileVideo className="w-8 h-8 text-primary" /> : <FileImage className="w-8 h-8 text-primary" />}
+                    <p className="font-medium text-muted-foreground">מדיה מתבנית שמורה</p>
                   </div>
                 )}
               </div>
