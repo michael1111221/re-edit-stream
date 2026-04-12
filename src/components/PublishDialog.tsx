@@ -261,7 +261,13 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     return urlData.publicUrl;
   };
 
+  const resolveChatId = (channelHandle: string): string => {
+    const ch = channels.find(c => c.handle === channelHandle);
+    return ch?.telegram_chat_id || channelHandle;
+  };
+
   const sendToChannel = async (channelHandle: string, validButtons: InlineButton[], fileUrl?: string) => {
+    const chatId = resolveChatId(channelHandle);
     if (fileUrl && attachedFile) {
       const fileType = getFileType(attachedFile);
       const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
