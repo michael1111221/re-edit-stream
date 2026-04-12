@@ -46,6 +46,8 @@ interface Template {
   caption: string;
   channel_handles: string[];
   inline_buttons: InlineButton[];
+  media_url: string | null;
+  media_type: string | null;
 }
 
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
@@ -106,6 +108,8 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         caption: t.caption,
         channel_handles: (t.channel_handles as any) || [],
         inline_buttons: (t.inline_buttons as any) || [],
+        media_url: (t as any).media_url || null,
+        media_type: (t as any).media_type || null,
       })));
     }
   };
@@ -115,12 +119,28 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       toast({ title: "הזן שם לתבנית", variant: "destructive" });
       return;
     }
+
+    let mediaUrl: string | null = null;
+    let mediaType: string | null = null;
+
+    if (attachedFile) {
+      try {
+        mediaUrl = await uploadFileToStorage(attachedFile);
+        mediaType = getFileType(attachedFile);
+      } catch (err: any) {
+        toast({ title: "שגיאה בהעלאת מדיה לתבנית", description: err.message, variant: "destructive" });
+        return;
+      }
+    }
+
     const { error } = await supabase.from("post_templates").insert({
       name: templateName,
       caption,
       channel_handles: selectedChannels as unknown as Json,
       inline_buttons: inlineButtons as unknown as Json,
-    });
+      media_url: mediaUrl,
+      media_type: mediaType,
+    } as any);
     if (error) {
       toast({ title: "שגיאה בשמירה", description: error.message, variant: "destructive" });
       return;
@@ -137,6 +157,19 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     setCaption(t.caption);
     setSelectedChannels(t.channel_handles);
     setInlineButtons(t.inline_buttons);
+
+    // Load saved media
+    removeFile();
+    if (t.media_url) {
+      setFilePreview(t.media_type === "photo" ? t.media_url : null);
+      // Create a placeholder reference so sendToChannel uses the saved URL
+      setTemplateMediaUrl(t.media_url);
+      setTemplateMediaType(t.media_type);
+    } else {
+      setTemplateMediaUrl(null);
+      setTemplateMediaType(null);
+    }
+
     toast({ title: `📋 תבנית "${t.name}" נטענה` });
   };
 
