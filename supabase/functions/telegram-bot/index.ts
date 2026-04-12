@@ -190,6 +190,29 @@ serve(async (req) => {
         break;
       }
 
+      case "sendAnimation": {
+        if (isHttpUrl(params.animation)) {
+          result = await sendMediaFromUrl(baseUrl, "sendAnimation", "document", params.animation, params, reply_markup);
+          break;
+        }
+
+        const body: any = {
+          chat_id: params.chat_id,
+          animation: params.animation,
+          caption: params.caption || "",
+          parse_mode: params.parse_mode || "HTML",
+        };
+        if (reply_markup) body.reply_markup = reply_markup;
+
+        const resp = await fetch(`${baseUrl}/sendAnimation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
       case "sendPhoto": {
         if (isHttpUrl(params.photo)) {
           result = await sendMediaFromUrl(baseUrl, "sendPhoto", "photo", params.photo, params, reply_markup);
