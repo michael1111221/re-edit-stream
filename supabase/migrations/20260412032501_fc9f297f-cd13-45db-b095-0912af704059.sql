@@ -1,0 +1,1 @@
+UPDATE channels SET telegram_chat_id = '-100' || telegram_chat_id WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id != '' AND telegram_chat_id NOT LIKE '-100%';

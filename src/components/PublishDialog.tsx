@@ -263,7 +263,12 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
 
   const resolveChatId = (channelHandle: string): string => {
     const ch = channels.find(c => c.handle === channelHandle);
-    return ch?.telegram_chat_id?.trim() || channelHandle;
+    let chatId = ch?.telegram_chat_id?.trim() || channelHandle;
+    // Auto-fix: if it's a numeric ID without -100 prefix, add it
+    if (/^\d{6,}$/.test(chatId)) {
+      chatId = `-100${chatId}`;
+    }
+    return chatId;
   };
 
   const validateChannelBeforePublish = async (channelHandle: string): Promise<string> => {
