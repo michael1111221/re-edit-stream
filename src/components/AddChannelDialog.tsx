@@ -52,6 +52,10 @@ export function AddChannelDialog({ open, onOpenChange, onAdd }: AddChannelDialog
             <Input value={handle} onChange={(e) => setHandle(e.target.value)} className="mt-1 bg-secondary border-border font-mono" dir="ltr" placeholder="@channel" required />
           </div>
           <div>
+            <Label className="text-sm text-muted-foreground">Telegram Chat ID (לערוצים פרטיים)</Label>
+            <Input value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} className="mt-1 bg-secondary border-border font-mono" dir="ltr" placeholder="-1001234567890" />
+          </div>
+          <div>
             <Label className="text-sm text-muted-foreground">סוג</Label>
             <div className="flex gap-2 mt-1">
               <Button type="button" size="sm" variant={type === "source" ? "default" : "outline"} onClick={() => setType("source")}>
