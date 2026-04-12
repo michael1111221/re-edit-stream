@@ -45,8 +45,8 @@ const inferFileName = (url: string, fallback: string) => {
 
 async function sendMediaFromUrl(
   baseUrl: string,
-  action: "sendPhoto" | "sendVideo" | "sendDocument",
-  mediaField: "photo" | "video" | "document",
+  action: "sendPhoto" | "sendVideo" | "sendAnimation" | "sendDocument",
+  mediaField: "photo" | "video" | "animation" | "document",
   mediaUrl: string,
   params: Record<string, any>,
   replyMarkup?: unknown,
@@ -57,7 +57,11 @@ async function sendMediaFromUrl(
   }
 
   const contentType = mediaResponse.headers.get("content-type") || "application/octet-stream";
-  const fallbackName = action === "sendPhoto" ? "image.jpg" : action === "sendVideo" ? "video.mp4" : "file";
+  const fallbackName = action === "sendPhoto"
+    ? "image.jpg"
+    : action === "sendVideo" || action === "sendAnimation"
+      ? "animation.mp4"
+      : "file";
   const fileName = inferFileName(mediaUrl, fallbackName);
   const mediaBlob = await mediaResponse.blob();
   const normalizedBlob = new Blob([mediaBlob], { type: contentType });
@@ -193,7 +197,7 @@ serve(async (req) => {
 
       case "sendAnimation": {
         if (isHttpUrl(params.animation)) {
-          result = await sendMediaFromUrl(baseUrl, "sendAnimation", "document", params.animation, params, reply_markup);
+          result = await sendMediaFromUrl(baseUrl, "sendAnimation", "animation", params.animation, params, reply_markup);
           break;
         }
 
