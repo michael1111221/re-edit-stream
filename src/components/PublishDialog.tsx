@@ -28,7 +28,7 @@ import { Channel } from "@/types/dashboard";
 import { sendMessageToChannel, InlineButton, deleteMessage, getChatInfo } from "@/lib/telegram";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen, RotateCcw } from "lucide-react";
+import { Send, Loader2, Plus, Trash2, CalendarIcon, Clock, Link2, Languages, ImagePlus, X, FileVideo, FileImage, Save, FolderOpen, RotateCcw, Edit3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Json } from "@/integrations/supabase/types";
@@ -116,14 +116,16 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
   };
 
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
   const saveAsTemplate = async () => {
     if (!templateName.trim()) {
       toast({ title: "הזן שם לתבנית", variant: "destructive" });
       return;
     }
 
-    let mediaUrl: string | null = null;
-    let mediaType: string | null = null;
+    let mediaUrl: string | null = templateMediaUrl;
+    let mediaType: string | null = templateMediaType;
 
     if (attachedFile) {
       try {
@@ -135,22 +137,53 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       }
     }
 
-    const { error } = await supabase.from("post_templates").insert({
+    const payload = {
       name: templateName,
       caption,
       channel_handles: selectedChannels as unknown as Json,
       inline_buttons: inlineButtons as unknown as Json,
       media_url: mediaUrl,
       media_type: mediaType,
-    } as any);
-    if (error) {
-      toast({ title: "שגיאה בשמירה", description: error.message, variant: "destructive" });
-      return;
+    } as any;
+
+    if (editingTemplateId) {
+      const { error } = await supabase.from("post_templates").update(payload).eq("id", editingTemplateId);
+      if (error) {
+        toast({ title: "שגיאה בעדכון", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "✅ תבנית עודכנה!" });
+      setEditingTemplateId(null);
+    } else {
+      const { error } = await supabase.from("post_templates").insert(payload);
+      if (error) {
+        toast({ title: "שגיאה בשמירה", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "✅ תבנית נשמרה!" });
     }
-    toast({ title: "✅ תבנית נשמרה!" });
     setTemplateName("");
     setShowSaveTemplate(false);
     loadTemplates();
+  };
+
+  const startEditTemplate = (t: Template) => {
+    setCaption(t.caption);
+    setSelectedChannels(t.channel_handles);
+    setInlineButtons(t.inline_buttons);
+    removeFile();
+    if (t.media_url) {
+      setTemplateMediaUrl(t.media_url);
+      setTemplateMediaType(t.media_type);
+      setFilePreview(t.media_type === "photo" ? t.media_url : null);
+    } else {
+      setTemplateMediaUrl(null);
+      setTemplateMediaType(null);
+    }
+    setEditingTemplateId(t.id);
+    setTemplateName(t.name);
+    setShowSaveTemplate(true);
+    toast({ title: `✏️ עורך תבנית "${t.name}"` });
   };
 
   const loadTemplate = (templateId: string) => {
@@ -543,13 +576,22 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                     >
                       {t.name}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteTemplate(t.id)}
-                      className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => startEditTemplate(t)}
+                        className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteTemplate(t.id)}
+                        className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -567,8 +609,13 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                   className="bg-secondary border-border text-sm flex-1"
                 />
                 <Button type="button" size="sm" onClick={saveAsTemplate} className="h-8 text-xs">
-                  שמור
+                  {editingTemplateId ? "עדכן" : "שמור"}
                 </Button>
+                {editingTemplateId && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => { setEditingTemplateId(null); setShowSaveTemplate(false); setTemplateName(""); }} className="h-8 text-xs">
+                    ביטול
+                  </Button>
+                )}
               </div>
             )}
           </div>
