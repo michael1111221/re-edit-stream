@@ -455,7 +455,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
             video_id: null,
             media_url: fileUrl || null,
             media_type: mediaType || null,
-            inline_buttons: validButtons.length > 0 ? validButtons : [],
+            inline_buttons: validButtons.length > 0 ? validButtons as unknown as Json[] : [],
           };
         });
         const { error } = await supabase.from("scheduled_posts").insert(inserts);
