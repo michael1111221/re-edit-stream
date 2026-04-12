@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardView } from "@/components/DashboardView";
@@ -21,6 +22,7 @@ const Index = () => {
   const [publishOpen, setPublishOpen] = useState(false);
   const { channels, videos, schedule, stats, addChannel, updateChannel, deleteChannel, deleteScheduledPost } = useDashboardData();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleToggleStatus = (channel: Channel) => {
     updateChannel.mutate(
