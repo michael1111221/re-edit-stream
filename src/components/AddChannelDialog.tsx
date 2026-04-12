@@ -156,3 +156,4 @@ export function AddChannelDialog({ open, onOpenChange, onAdd }: AddChannelDialog
       </DialogContent>
     </Dialog>
   );
+}
