@@ -276,7 +276,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       let { data, error } = await supabase.functions.invoke("telegram-bot", {
         body: {
           action: actionMap[fileType],
-          chat_id: channelHandle,
+           chat_id: chatId,
           [fieldMap[fileType]]: fileUrl,
           caption: caption.trim() || undefined,
           inline_buttons: validButtons.length > 0 ? validButtons : undefined,
@@ -287,7 +287,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         const retry = await supabase.functions.invoke("telegram-bot", {
           body: {
             action: "sendDocument",
-            chat_id: channelHandle,
+            chat_id: chatId,
             document: fileUrl,
             caption: caption.trim() || undefined,
             inline_buttons: validButtons.length > 0 ? validButtons : undefined,
@@ -301,7 +301,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       return data;
     } else {
       return await sendMessageToChannel(
-        channelHandle,
+        chatId,
         caption,
         validButtons.length > 0 ? validButtons : undefined
       );
