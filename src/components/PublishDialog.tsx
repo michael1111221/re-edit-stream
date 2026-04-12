@@ -441,6 +441,9 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         setIsSending(false);
         return;
       }
+    } else if (templateMediaUrl) {
+      fileUrl = templateMediaUrl;
+      mediaType = templateMediaType || undefined;
     }
 
     for (const handle of selectedChannels) {
@@ -455,7 +458,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
           }
         }
 
-        const result = await sendToChannel(handle, validButtons, fileUrl);
+        const result = await sendToChannel(handle, validButtons, fileUrl, mediaType);
         if (result.ok) {
           successCount++;
           const msgId = result.result?.message_id || result.result?.message_id;
