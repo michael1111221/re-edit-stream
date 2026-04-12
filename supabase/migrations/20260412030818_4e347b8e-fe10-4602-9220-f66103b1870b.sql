@@ -1,0 +1,1 @@
+ALTER TABLE public.channels ADD COLUMN telegram_chat_id text DEFAULT NULL;

@@ -261,7 +261,13 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     return urlData.publicUrl;
   };
 
+  const resolveChatId = (channelHandle: string): string => {
+    const ch = channels.find(c => c.handle === channelHandle);
+    return ch?.telegram_chat_id || channelHandle;
+  };
+
   const sendToChannel = async (channelHandle: string, validButtons: InlineButton[], fileUrl?: string) => {
+    const chatId = resolveChatId(channelHandle);
     if (fileUrl && attachedFile) {
       const fileType = getFileType(attachedFile);
       const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
@@ -270,7 +276,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       let { data, error } = await supabase.functions.invoke("telegram-bot", {
         body: {
           action: actionMap[fileType],
-          chat_id: channelHandle,
+           chat_id: chatId,
           [fieldMap[fileType]]: fileUrl,
           caption: caption.trim() || undefined,
           inline_buttons: validButtons.length > 0 ? validButtons : undefined,
@@ -281,7 +287,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
         const retry = await supabase.functions.invoke("telegram-bot", {
           body: {
             action: "sendDocument",
-            chat_id: channelHandle,
+            chat_id: chatId,
             document: fileUrl,
             caption: caption.trim() || undefined,
             inline_buttons: validButtons.length > 0 ? validButtons : undefined,
@@ -295,7 +301,7 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
       return data;
     } else {
       return await sendMessageToChannel(
-        channelHandle,
+        chatId,
         caption,
         validButtons.length > 0 ? validButtons : undefined
       );
@@ -374,11 +380,12 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     }
 
     for (const handle of selectedChannels) {
+      const resolvedChatId = resolveChatId(handle);
       try {
         // Delete previous message if toggle is on
         if (deleteBeforePublish && lastMessageIds[handle]) {
           try {
-            await deleteMessage(handle, lastMessageIds[handle]);
+            await deleteMessage(resolvedChatId, lastMessageIds[handle]);
           } catch (err) {
             console.warn(`Could not delete last message in ${handle}:`, err);
           }

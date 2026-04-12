@@ -202,6 +202,7 @@ export type Database = {
           language: string
           name: string
           status: Database["public"]["Enums"]["channel_status"]
+          telegram_chat_id: string | null
           type: Database["public"]["Enums"]["channel_type"]
           updated_at: string
           video_count: number
@@ -214,6 +215,7 @@ export type Database = {
           language?: string
           name: string
           status?: Database["public"]["Enums"]["channel_status"]
+          telegram_chat_id?: string | null
           type: Database["public"]["Enums"]["channel_type"]
           updated_at?: string
           video_count?: number
@@ -226,6 +228,7 @@ export type Database = {
           language?: string
           name?: string
           status?: Database["public"]["Enums"]["channel_status"]
+          telegram_chat_id?: string | null
           type?: Database["public"]["Enums"]["channel_type"]
           updated_at?: string
           video_count?: number
