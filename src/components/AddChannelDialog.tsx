@@ -20,15 +20,17 @@ interface AddChannelDialogProps {
 export function AddChannelDialog({ open, onOpenChange, onAdd }: AddChannelDialogProps) {
   const [name, setName] = useState("");
   const [handle, setHandle] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
   const [type, setType] = useState<"source" | "target">("source");
   const [isOwned, setIsOwned] = useState(true);
   const [language, setLanguage] = useState("he");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onAdd({ name, handle, type, is_owned: isOwned, language });
+    onAdd({ name, handle, type, is_owned: isOwned, language, telegram_chat_id: telegramChatId.trim() || null });
     setName("");
     setHandle("");
+    setTelegramChatId("");
     setType("source");
     setIsOwned(true);
     setLanguage("he");
