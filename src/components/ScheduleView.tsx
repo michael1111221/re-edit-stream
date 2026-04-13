@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { ScheduledPost, Channel } from "@/types/dashboard";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,10 @@ import {
   ImagePlus,
   X,
   FileVideo,
+  Bold,
+  Underline,
+  Italic,
+  Smile,
   FileImage,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -68,6 +72,18 @@ interface ScheduleViewProps {
 export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: ScheduleViewProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const rCaptionRef = useRef<HTMLTextAreaElement>(null);
+  const [showREmoji, setShowREmoji] = useState(false);
+
+  const EMOJI_LIST = [
+    "😀", "😂", "🥰", "😎", "🤩", "😍", "🥳", "🤗", "😇", "🙏",
+    "👍", "👎", "❤️", "🔥", "⭐", "💯", "✅", "❌", "🎉", "🎯",
+    "💰", "💎", "🚀", "📢", "📌", "🔗", "📱", "💻", "🎬", "🎵",
+    "👀", "💪", "🤝", "👏", "🙌", "✨", "💡", "⚡", "🌟", "🏆",
+    "📣", "🔔", "💬", "📝", "🎁", "🛒", "💸", "📈", "🔑", "🌐",
+  ];
+
+  
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
@@ -91,6 +107,33 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   const [rMediaUrl, setRMediaUrl] = useState<string | null>(null);
   const [rMediaType, setRMediaType] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const insertAtCursorR = useCallback((before: string, after: string = "") => {
+    const ta = rCaptionRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = rCaption.substring(start, end);
+    const newText = rCaption.substring(0, start) + before + selected + after + rCaption.substring(end);
+    setRCaption(newText);
+    setTimeout(() => {
+      ta.focus();
+      const cursorPos = start + before.length + selected.length + (selected ? after.length : 0);
+      ta.setSelectionRange(selected ? cursorPos : start + before.length, selected ? cursorPos : start + before.length);
+    }, 0);
+  }, [rCaption]);
+
+  const insertEmojiR = useCallback((emoji: string) => {
+    const ta = rCaptionRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const newText = rCaption.substring(0, start) + emoji + rCaption.substring(start);
+    setRCaption(newText);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
+  }, [rCaption]);
 
   const targetChannels = channels.filter(c => c.type === "target" && c.status === "active");
 
@@ -452,7 +495,37 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
 
             <div>
               <Label className="text-sm text-muted-foreground">הודעה</Label>
-              <Textarea value={rCaption} onChange={e => setRCaption(e.target.value)} placeholder="טקסט ההודעה (תומך HTML)" className="mt-1 bg-secondary border-border min-h-[60px]" />
+              <div className="flex items-center gap-1 mt-1 mb-1">
+                <button type="button" onClick={() => insertAtCursorR("<b>", "</b>")}
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="מודגש">
+                  <Bold className="w-4 h-4" />
+                </button>
+                <button type="button" onClick={() => insertAtCursorR("<i>", "</i>")}
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="נטוי">
+                  <Italic className="w-4 h-4" />
+                </button>
+                <button type="button" onClick={() => insertAtCursorR("<u>", "</u>")}
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="קו תחתון">
+                  <Underline className="w-4 h-4" />
+                </button>
+                <div className="relative">
+                  <button type="button" onClick={() => setShowREmoji(!showREmoji)}
+                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="אימוג'י">
+                    <Smile className="w-4 h-4" />
+                  </button>
+                  {showREmoji && (
+                    <div className="absolute top-full right-0 mt-1 z-50 bg-card border border-border rounded-lg p-2 shadow-lg w-64 max-h-40 overflow-y-auto">
+                      <div className="grid grid-cols-10 gap-0.5">
+                        {EMOJI_LIST.map(e => (
+                          <button key={e} type="button" onClick={() => { insertEmojiR(e); setShowREmoji(false); }}
+                            className="p-1 text-base hover:bg-muted rounded transition-colors">{e}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Textarea ref={rCaptionRef} value={rCaption} onChange={e => setRCaption(e.target.value)} placeholder="טקסט ההודעה (תומך HTML)" className="bg-secondary border-border min-h-[60px]" />
             </div>
 
             {/* Media */}
