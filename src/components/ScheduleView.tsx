@@ -47,6 +47,16 @@ import { cn } from "@/lib/utils";
 import { Json } from "@/integrations/supabase/types";
 import { InlineButton } from "@/lib/telegram";
 
+interface SavedTemplate {
+  id: string;
+  name: string;
+  caption: string;
+  channel_handles: string[];
+  inline_buttons: InlineButton[];
+  media_url: string | null;
+  media_type: string | null;
+}
+
 const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
 interface RecurringSchedule {
