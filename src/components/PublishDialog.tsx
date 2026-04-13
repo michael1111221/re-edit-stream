@@ -69,6 +69,42 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
   const [lastMessageIds, setLastMessageIds] = useState<Record<string, number>>({});
   const [templateMediaUrl, setTemplateMediaUrl] = useState<string | null>(null);
   const [templateMediaType, setTemplateMediaType] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  const EMOJI_LIST = [
+    "😀", "😂", "🥰", "😎", "🤩", "😍", "🥳", "🤗", "😇", "🙏",
+    "👍", "👎", "❤️", "🔥", "⭐", "💯", "✅", "❌", "🎉", "🎯",
+    "💰", "💎", "🚀", "📢", "📌", "🔗", "📱", "💻", "🎬", "🎵",
+    "👀", "💪", "🤝", "👏", "🙌", "✨", "💡", "⚡", "🌟", "🏆",
+    "📣", "🔔", "💬", "📝", "🎁", "🛒", "💸", "📈", "🔑", "🌐",
+  ];
+
+  const insertAtCursor = (before: string, after: string = "") => {
+    const ta = captionRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = caption.substring(start, end);
+    const newText = caption.substring(0, start) + before + selected + after + caption.substring(end);
+    setCaption(newText);
+    setTimeout(() => {
+      ta.focus();
+      const cursorPos = start + before.length + selected.length + (selected ? after.length : 0);
+      ta.setSelectionRange(selected ? cursorPos : start + before.length, selected ? cursorPos : start + before.length);
+    }, 0);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const ta = captionRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const newText = caption.substring(0, start) + emoji + caption.substring(start);
+    setCaption(newText);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
+  };
 
   // Templates
   const [templates, setTemplates] = useState<Template[]>([]);
