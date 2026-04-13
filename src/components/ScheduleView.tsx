@@ -179,7 +179,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     toast({ title: `✅ תבנית "${t.name}" נטענה` });
   };
 
-
+  const loadRecurring = async () => {
     const { data } = await supabase.from("recurring_schedules").select("*").order("created_at", { ascending: false });
     if (data) {
       setRecurringSchedules(data.map(r => ({
