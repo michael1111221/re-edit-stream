@@ -12,7 +12,6 @@ const isHttpUrl = (value: unknown): value is string =>
 
 const buildReplyMarkup = (inlineButtons: unknown) => {
   if (!Array.isArray(inlineButtons) || inlineButtons.length === 0) return undefined;
-
   return {
     inline_keyboard: inlineButtons.map((btn: { text: string; url: string }) => [
       { text: btn.text, url: btn.url },
@@ -20,14 +19,28 @@ const buildReplyMarkup = (inlineButtons: unknown) => {
   };
 };
 
+// Retry wrapper for fetch calls to Telegram API
+async function fetchWithRetry(url: string, init?: RequestInit, retries = 3): Promise<Response> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const resp = await fetch(url, init);
+      return resp;
+    } catch (err) {
+      console.error(`Telegram fetch attempt ${attempt}/${retries} failed:`, err);
+      if (attempt === retries) throw err;
+      // Wait before retry: 1s, 2s
+      await new Promise(r => setTimeout(r, attempt * 1000));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 const appendCaptionAndButtons = (form: FormData, params: Record<string, any>, replyMarkup?: unknown) => {
   form.append("chat_id", params.chat_id);
-
   if (params.caption) {
     form.append("caption", params.caption);
     form.append("parse_mode", params.parse_mode || "HTML");
   }
-
   if (replyMarkup) {
     form.append("reply_markup", JSON.stringify(replyMarkup));
   }
@@ -70,7 +83,7 @@ async function sendMediaFromUrl(
   appendCaptionAndButtons(tgForm, params, replyMarkup);
   tgForm.append(mediaField, normalizedBlob, fileName);
 
-  const resp = await fetch(`${baseUrl}/${action}`, {
+  const resp = await fetchWithRetry(`${baseUrl}/${action}`, {
     method: "POST",
     body: tgForm,
   });
@@ -152,7 +165,7 @@ serve(async (req) => {
 
       tgForm.append(fieldName, file, file.name);
 
-      const resp = await fetch(`${baseUrl}/${endpoint}`, { method: "POST", body: tgForm });
+      const resp = await fetchWithRetry(`${baseUrl}/${endpoint}`, { method: "POST", body: tgForm });
       const result = await resp.json();
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -167,7 +180,7 @@ serve(async (req) => {
 
     switch (action) {
       case "getMe": {
-        const resp = await fetch(`${baseUrl}/getMe`);
+        const resp = await fetchWithRetry(`${baseUrl}/getMe`);
         result = await resp.json();
         break;
       }
@@ -177,20 +190,9 @@ serve(async (req) => {
           result = await sendMediaFromUrl(baseUrl, "sendVideo", "video", params.video, params, reply_markup);
           break;
         }
-
-        const body: any = {
-          chat_id: params.chat_id,
-          video: params.video,
-          caption: params.caption || "",
-          parse_mode: params.parse_mode || "HTML",
-        };
-        if (reply_markup) body.reply_markup = reply_markup;
-
-        const resp = await fetch(`${baseUrl}/sendVideo`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        const b: any = { chat_id: params.chat_id, video: params.video, caption: params.caption || "", parse_mode: params.parse_mode || "HTML" };
+        if (reply_markup) b.reply_markup = reply_markup;
+        const resp = await fetchWithRetry(`${baseUrl}/sendVideo`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
         result = await resp.json();
         break;
       }
@@ -200,20 +202,9 @@ serve(async (req) => {
           result = await sendMediaFromUrl(baseUrl, "sendAnimation", "animation", params.animation, params, reply_markup);
           break;
         }
-
-        const body: any = {
-          chat_id: params.chat_id,
-          animation: params.animation,
-          caption: params.caption || "",
-          parse_mode: params.parse_mode || "HTML",
-        };
-        if (reply_markup) body.reply_markup = reply_markup;
-
-        const resp = await fetch(`${baseUrl}/sendAnimation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        const b: any = { chat_id: params.chat_id, animation: params.animation, caption: params.caption || "", parse_mode: params.parse_mode || "HTML" };
+        if (reply_markup) b.reply_markup = reply_markup;
+        const resp = await fetchWithRetry(`${baseUrl}/sendAnimation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
         result = await resp.json();
         break;
       }
@@ -223,20 +214,9 @@ serve(async (req) => {
           result = await sendMediaFromUrl(baseUrl, "sendPhoto", "photo", params.photo, params, reply_markup);
           break;
         }
-
-        const body: any = {
-          chat_id: params.chat_id,
-          photo: params.photo,
-          caption: params.caption || "",
-          parse_mode: params.parse_mode || "HTML",
-        };
-        if (reply_markup) body.reply_markup = reply_markup;
-
-        const resp = await fetch(`${baseUrl}/sendPhoto`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        const b: any = { chat_id: params.chat_id, photo: params.photo, caption: params.caption || "", parse_mode: params.parse_mode || "HTML" };
+        if (reply_markup) b.reply_markup = reply_markup;
+        const resp = await fetchWithRetry(`${baseUrl}/sendPhoto`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
         result = await resp.json();
         break;
       }
@@ -246,119 +226,61 @@ serve(async (req) => {
           result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", params.document, params, reply_markup);
           break;
         }
-
-        const body: any = {
-          chat_id: params.chat_id,
-          document: params.document,
-          caption: params.caption || "",
-          parse_mode: params.parse_mode || "HTML",
-        };
-        if (reply_markup) body.reply_markup = reply_markup;
-
-        const resp = await fetch(`${baseUrl}/sendDocument`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        const b: any = { chat_id: params.chat_id, document: params.document, caption: params.caption || "", parse_mode: params.parse_mode || "HTML" };
+        if (reply_markup) b.reply_markup = reply_markup;
+        const resp = await fetchWithRetry(`${baseUrl}/sendDocument`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
         result = await resp.json();
         break;
       }
 
       case "sendMessage": {
-        const body: any = {
-          chat_id: params.chat_id,
-          text: params.text,
-          parse_mode: params.parse_mode || "HTML",
-        };
-        if (reply_markup) body.reply_markup = reply_markup;
-
-        const resp = await fetch(`${baseUrl}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        const b: any = { chat_id: params.chat_id, text: params.text, parse_mode: params.parse_mode || "HTML" };
+        if (reply_markup) b.reply_markup = reply_markup;
+        const resp = await fetchWithRetry(`${baseUrl}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
         result = await resp.json();
         break;
       }
 
       case "forwardMessage": {
-        const resp = await fetch(`${baseUrl}/forwardMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: params.chat_id,
-            from_chat_id: params.from_chat_id,
-            message_id: params.message_id,
-          }),
-        });
+        const resp = await fetchWithRetry(`${baseUrl}/forwardMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: params.chat_id, from_chat_id: params.from_chat_id, message_id: params.message_id }) });
         result = await resp.json();
         break;
       }
 
       case "copyMessage": {
-        const body: any = {
-          chat_id: params.chat_id,
-          from_chat_id: params.from_chat_id,
-          message_id: params.message_id,
-          caption: params.caption,
-          parse_mode: "HTML",
-        };
-        if (reply_markup) body.reply_markup = reply_markup;
-
-        const resp = await fetch(`${baseUrl}/copyMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        const b: any = { chat_id: params.chat_id, from_chat_id: params.from_chat_id, message_id: params.message_id, caption: params.caption, parse_mode: "HTML" };
+        if (reply_markup) b.reply_markup = reply_markup;
+        const resp = await fetchWithRetry(`${baseUrl}/copyMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
         result = await resp.json();
         break;
       }
 
       case "getChat": {
-        const resp = await fetch(`${baseUrl}/getChat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: params.chat_id }),
-        });
+        const resp = await fetchWithRetry(`${baseUrl}/getChat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: params.chat_id }) });
         result = await resp.json();
         break;
       }
 
       case "getChatMemberCount": {
-        const resp = await fetch(`${baseUrl}/getChatMemberCount`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: params.chat_id }),
-        });
+        const resp = await fetchWithRetry(`${baseUrl}/getChatMemberCount`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: params.chat_id }) });
         result = await resp.json();
         break;
       }
 
       case "setWebhook": {
-        const resp = await fetch(`${baseUrl}/setWebhook`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: params.url, allowed_updates: ["message", "channel_post", "callback_query"] }),
-        });
+        const resp = await fetchWithRetry(`${baseUrl}/setWebhook`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: params.url, allowed_updates: ["message", "channel_post", "callback_query"] }) });
         result = await resp.json();
         break;
       }
 
       case "deleteWebhook": {
-        const resp = await fetch(`${baseUrl}/deleteWebhook`);
+        const resp = await fetchWithRetry(`${baseUrl}/deleteWebhook`);
         result = await resp.json();
         break;
       }
 
       case "deleteMessage": {
-        const resp = await fetch(`${baseUrl}/deleteMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: params.chat_id,
-            message_id: params.message_id,
-          }),
-        });
+        const resp = await fetchWithRetry(`${baseUrl}/deleteMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: params.chat_id, message_id: params.message_id }) });
         result = await resp.json();
         break;
       }
@@ -366,17 +288,10 @@ serve(async (req) => {
       case "catalogSetWebhook": {
         const CATALOG_TOKEN = Deno.env.get("CATALOG_BOT_TOKEN");
         if (!CATALOG_TOKEN) {
-          return new Response(
-            JSON.stringify({ error: "CATALOG_BOT_TOKEN not configured" }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return new Response(JSON.stringify({ error: "CATALOG_BOT_TOKEN not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         const catalogBase = `${TELEGRAM_API}${CATALOG_TOKEN}`;
-        const resp = await fetch(`${catalogBase}/setWebhook`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: params.url, allowed_updates: ["message", "callback_query"] }),
-        });
+        const resp = await fetchWithRetry(`${catalogBase}/setWebhook`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: params.url, allowed_updates: ["message", "callback_query"] }) });
         result = await resp.json();
         break;
       }
@@ -384,13 +299,10 @@ serve(async (req) => {
       case "catalogDeleteWebhook": {
         const CATALOG_TOKEN2 = Deno.env.get("CATALOG_BOT_TOKEN");
         if (!CATALOG_TOKEN2) {
-          return new Response(
-            JSON.stringify({ error: "CATALOG_BOT_TOKEN not configured" }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return new Response(JSON.stringify({ error: "CATALOG_BOT_TOKEN not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         const catalogBase2 = `${TELEGRAM_API}${CATALOG_TOKEN2}`;
-        const resp = await fetch(`${catalogBase2}/deleteWebhook`);
+        const resp = await fetchWithRetry(`${catalogBase2}/deleteWebhook`);
         result = await resp.json();
         break;
       }
@@ -407,9 +319,10 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Telegram bot error:", error);
+    // Return 200 with error info so frontend doesn't crash on transient failures
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Unknown error", fallback: true }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
