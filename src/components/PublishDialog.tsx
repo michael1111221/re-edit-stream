@@ -732,15 +732,47 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
                 תרגם לעברית
               </Button>
             </div>
+            {/* Formatting Toolbar */}
+            <div className="flex items-center gap-1 mt-1 mb-1 p-1 rounded-t-md border border-b-0 border-border bg-muted/50">
+              <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" title="מודגש (Bold)"
+                onClick={() => insertAtCursor("<b>", "</b>")}>
+                <Bold className="w-3.5 h-3.5" />
+              </Button>
+              <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" title="נטוי (Italic)"
+                onClick={() => insertAtCursor("<i>", "</i>")}>
+                <Italic className="w-3.5 h-3.5" />
+              </Button>
+              <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" title="קו תחתון (Underline)"
+                onClick={() => insertAtCursor("<u>", "</u>")}>
+                <Underline className="w-3.5 h-3.5" />
+              </Button>
+              <div className="w-px h-5 bg-border mx-0.5" />
+              <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" title="אימוג׳י">
+                    <Smile className="w-3.5 h-3.5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-2" align="start">
+                  <div className="grid grid-cols-10 gap-1">
+                    {EMOJI_LIST.map((emoji) => (
+                      <button key={emoji} type="button"
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted text-base cursor-pointer"
+                        onClick={() => { insertEmoji(emoji); setShowEmojiPicker(false); }}>
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
             <Textarea
+              ref={captionRef}
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              placeholder={attachedFile ? "הוסף כיתוב לקובץ... (תומך ב-HTML)" : "כתוב את ההודעה שלך... (תומך ב-HTML)"}
-              className="mt-1 bg-secondary border-border min-h-[80px]"
+              placeholder={attachedFile ? "הוסף כיתוב לקובץ..." : "כתוב את ההודעה שלך..."}
+              className="bg-secondary border-border min-h-[80px] rounded-t-none"
             />
-            <p className="text-xs text-muted-foreground mt-1">
-              HTML: &lt;b&gt;בולד&lt;/b&gt;, &lt;i&gt;נטוי&lt;/i&gt;, &lt;a href="..."&gt;קישור&lt;/a&gt;
-            </p>
           </div>
 
           {/* File Attachment */}
