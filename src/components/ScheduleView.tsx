@@ -37,6 +37,7 @@ import {
   Italic,
   Smile,
   FileImage,
+  FolderOpen,
 } from "lucide-react";
 import { format } from "date-fns";
 import { he } from "date-fns/locale";
