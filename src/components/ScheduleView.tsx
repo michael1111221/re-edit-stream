@@ -83,7 +83,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     "📣", "🔔", "💬", "📝", "🎁", "🛒", "💸", "📈", "🔑", "🌐",
   ];
 
-  // moved below rCaption declaration
+  
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
