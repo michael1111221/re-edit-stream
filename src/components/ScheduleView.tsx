@@ -151,7 +151,19 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
 
   useEffect(() => {
     loadRecurring();
+    loadTemplates();
   }, []);
+
+  const loadTemplates = async () => {
+    const { data } = await supabase.from("post_templates").select("*").order("created_at", { ascending: false });
+    if (data) {
+      setTemplates(data.map(t => ({
+        ...t,
+        channel_handles: (t.channel_handles as any) || [],
+        inline_buttons: (t.inline_buttons as any) || [],
+      })));
+    }
+  };
 
   const loadRecurring = async () => {
     const { data } = await supabase.from("recurring_schedules").select("*").order("created_at", { ascending: false });
