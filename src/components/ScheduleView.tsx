@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { ScheduledPost, Channel } from "@/types/dashboard";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,11 @@ import {
   CalendarClock,
   Clock,
   Repeat,
+  Link2,
+  ImagePlus,
+  X,
+  FileVideo,
+  FileImage,
 } from "lucide-react";
 import { format } from "date-fns";
 import { he } from "date-fns/locale";
@@ -35,6 +40,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Json } from "@/integrations/supabase/types";
+import { InlineButton } from "@/lib/telegram";
 
 const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
@@ -43,11 +49,13 @@ interface RecurringSchedule {
   name: string;
   caption: string;
   channel_handles: string[];
-  inline_buttons: any[];
+  inline_buttons: InlineButton[];
   days_of_week: number[];
   time_of_day: string;
   is_active: boolean;
   last_run_at: string | null;
+  media_url: string | null;
+  media_type: string | null;
 }
 
 interface ScheduleViewProps {
@@ -59,6 +67,7 @@ interface ScheduleViewProps {
 
 export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: ScheduleViewProps) {
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
@@ -76,6 +85,12 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   const [rChannels, setRChannels] = useState<string[]>([]);
   const [rDays, setRDays] = useState<number[]>([]);
   const [rTime, setRTime] = useState("12:00");
+  const [rButtons, setRButtons] = useState<InlineButton[]>([]);
+  const [rFile, setRFile] = useState<File | null>(null);
+  const [rFilePreview, setRFilePreview] = useState<string | null>(null);
+  const [rMediaUrl, setRMediaUrl] = useState<string | null>(null);
+  const [rMediaType, setRMediaType] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const targetChannels = channels.filter(c => c.type === "target" && c.status === "active");
 
@@ -91,6 +106,8 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
         channel_handles: (r.channel_handles as any) || [],
         inline_buttons: (r.inline_buttons as any) || [],
         days_of_week: r.days_of_week || [],
+        media_url: (r as any).media_url || null,
+        media_type: (r as any).media_type || null,
       })));
     }
   };
@@ -102,6 +119,11 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     setRChannels([]);
     setRDays([]);
     setRTime("12:00");
+    setRButtons([]);
+    setRFile(null);
+    setRFilePreview(null);
+    setRMediaUrl(null);
+    setRMediaType(null);
   };
 
   const openNewRecurring = () => {
@@ -116,7 +138,56 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     setRChannels(r.channel_handles);
     setRDays(r.days_of_week);
     setRTime(r.time_of_day);
+    setRButtons(r.inline_buttons || []);
+    setRFile(null);
+    setRFilePreview(null);
+    setRMediaUrl(r.media_url);
+    setRMediaType(r.media_type);
     setShowRecurringDialog(true);
+  };
+
+  const getFileType = (file: File): "photo" | "video" | "document" => {
+    if (file.type.startsWith("image/")) return "photo";
+    if (file.type.startsWith("video/")) return "video";
+    return "document";
+  };
+
+  const uploadFileToStorage = async (file: File): Promise<string> => {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (!userId) throw new Error("המשתמש לא מחובר");
+    const ext = file.name.split(".").pop() || "bin";
+    const path = `${userId}/recurring/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage.from("temp-uploads").upload(path, file);
+    if (error) throw new Error("שגיאה בהעלאת קובץ: " + error.message);
+    const { data: urlData } = supabase.storage.from("temp-uploads").getPublicUrl(path);
+    return urlData.publicUrl;
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ title: "הקובץ גדול מדי", description: "מקסימום 50MB", variant: "destructive" });
+      return;
+    }
+    setRFile(file);
+    setRMediaUrl(null);
+    setRMediaType(null);
+    if (file.type.startsWith("image/")) {
+      setRFilePreview(URL.createObjectURL(file));
+    } else {
+      setRFilePreview(null);
+    }
+  };
+
+  const removeMedia = () => {
+    setRFile(null);
+    if (rFilePreview) URL.revokeObjectURL(rFilePreview);
+    setRFilePreview(null);
+    setRMediaUrl(null);
+    setRMediaType(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const saveRecurring = async () => {
@@ -133,28 +204,47 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
       return;
     }
 
-    const payload = {
-      name: rName,
-      caption: rCaption,
-      channel_handles: rChannels as unknown as Json,
-      inline_buttons: [] as unknown as Json,
-      days_of_week: rDays,
-      time_of_day: rTime,
-    };
+    setIsSaving(true);
+    try {
+      let mediaUrl = rMediaUrl;
+      let mediaType = rMediaType;
 
-    if (editingId) {
-      const { error } = await supabase.from("recurring_schedules").update(payload).eq("id", editingId);
-      if (error) { toast({ title: "שגיאה", description: error.message, variant: "destructive" }); return; }
-      toast({ title: "✅ תזמון חוזר עודכן" });
-    } else {
-      const { error } = await supabase.from("recurring_schedules").insert(payload);
-      if (error) { toast({ title: "שגיאה", description: error.message, variant: "destructive" }); return; }
-      toast({ title: "✅ תזמון חוזר נוצר" });
+      if (rFile) {
+        mediaUrl = await uploadFileToStorage(rFile);
+        mediaType = getFileType(rFile);
+      }
+
+      const validButtons = rButtons.filter(b => b.text && b.url);
+
+      const payload = {
+        name: rName,
+        caption: rCaption,
+        channel_handles: rChannels as unknown as Json,
+        inline_buttons: validButtons as unknown as Json,
+        days_of_week: rDays,
+        time_of_day: rTime,
+        media_url: mediaUrl,
+        media_type: mediaType,
+      } as any;
+
+      if (editingId) {
+        const { error } = await supabase.from("recurring_schedules").update(payload).eq("id", editingId);
+        if (error) { toast({ title: "שגיאה", description: error.message, variant: "destructive" }); return; }
+        toast({ title: "✅ תזמון חוזר עודכן" });
+      } else {
+        const { error } = await supabase.from("recurring_schedules").insert(payload);
+        if (error) { toast({ title: "שגיאה", description: error.message, variant: "destructive" }); return; }
+        toast({ title: "✅ תזמון חוזר נוצר" });
+      }
+
+      setShowRecurringDialog(false);
+      resetForm();
+      loadRecurring();
+    } catch (err: any) {
+      toast({ title: "שגיאה", description: err.message, variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
-
-    setShowRecurringDialog(false);
-    resetForm();
-    loadRecurring();
   };
 
   const toggleRecurringActive = async (id: string, is_active: boolean) => {
@@ -236,7 +326,19 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
                   <Switch checked={r.is_active} onCheckedChange={() => toggleRecurringActive(r.id, r.is_active)} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-foreground">{r.name}</div>
+                  <div className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                    {r.name}
+                    {r.media_url && (
+                      <span className="text-xs bg-primary/15 text-primary px-1.5 py-0.5 rounded">
+                        {r.media_type === "photo" ? "📷" : r.media_type === "video" ? "🎬" : "📎"} מדיה
+                      </span>
+                    )}
+                    {r.inline_buttons.length > 0 && (
+                      <span className="text-xs bg-accent/15 text-accent px-1.5 py-0.5 rounded">
+                        🔗 {r.inline_buttons.length} כפתורים
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {r.days_of_week.map(d => DAY_NAMES[d]).join(", ")} • {r.time_of_day}
                   </div>
@@ -334,7 +436,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
 
       {/* Recurring Schedule Dialog */}
       <Dialog open={showRecurringDialog} onOpenChange={setShowRecurringDialog}>
-        <DialogContent className="bg-card border-border max-w-md" dir="rtl">
+        <DialogContent className="bg-card border-border max-w-md max-h-[90vh] overflow-y-auto" dir="rtl">
           <DialogHeader>
             <DialogTitle className="text-foreground flex items-center gap-2">
               <Repeat className="w-5 h-5 text-primary" />
@@ -353,6 +455,53 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
               <Textarea value={rCaption} onChange={e => setRCaption(e.target.value)} placeholder="טקסט ההודעה (תומך HTML)" className="mt-1 bg-secondary border-border min-h-[60px]" />
             </div>
 
+            {/* Media */}
+            <div>
+              <Label className="text-sm text-muted-foreground flex items-center gap-1.5 mb-2">
+                <ImagePlus className="w-3.5 h-3.5" />
+                מדיה (אופציונלי)
+              </Label>
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*,video/*" className="hidden" />
+              {rFile ? (
+                <div className="relative rounded-lg border border-border bg-secondary p-3">
+                  <button type="button" onClick={removeMedia}
+                    className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
+                    <X className="w-3 h-3" />
+                  </button>
+                  {rFilePreview ? (
+                    <img src={rFilePreview} alt="תצוגה מקדימה" className="w-full max-h-32 object-contain rounded" />
+                  ) : (
+                    <div className="flex items-center gap-3 text-sm text-foreground">
+                      <FileVideo className="w-6 h-6 text-primary" />
+                      <span>{rFile.name} ({(rFile.size / 1024 / 1024).toFixed(1)} MB)</span>
+                    </div>
+                  )}
+                </div>
+              ) : rMediaUrl ? (
+                <div className="relative rounded-lg border border-border bg-secondary p-3">
+                  <button type="button" onClick={removeMedia}
+                    className="absolute top-2 left-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80 z-10">
+                    <X className="w-3 h-3" />
+                  </button>
+                  {rMediaType === "photo" ? (
+                    <img src={rMediaUrl} alt="מדיה שמורה" className="w-full max-h-32 object-contain rounded" />
+                  ) : (
+                    <div className="flex items-center gap-3 text-sm text-foreground">
+                      {rMediaType === "video" ? <FileVideo className="w-6 h-6 text-primary" /> : <FileImage className="w-6 h-6 text-primary" />}
+                      <span className="text-muted-foreground">מדיה שמורה</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary/50 hover:bg-secondary/50 transition-colors">
+                  <ImagePlus className="w-6 h-6 mx-auto mb-1 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">לחץ להעלאת תמונה או סרטון</span>
+                </button>
+              )}
+            </div>
+
+            {/* Channels */}
             <div>
               <Label className="text-sm text-muted-foreground mb-2 block">ערוצי יעד</Label>
               <div className="space-y-1.5 rounded-md border border-border bg-secondary p-2 max-h-32 overflow-y-auto">
@@ -370,6 +519,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
               </div>
             </div>
 
+            {/* Days */}
             <div>
               <Label className="text-sm text-muted-foreground mb-2 block">ימים</Label>
               <div className="flex gap-1.5 flex-wrap">
@@ -391,14 +541,46 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
               </div>
             </div>
 
+            {/* Time */}
             <div>
               <Label className="text-sm text-muted-foreground">שעה</Label>
               <Input type="time" value={rTime} onChange={e => setRTime(e.target.value)} className="mt-1 bg-secondary border-border w-32" dir="ltr" />
             </div>
 
-            <Button onClick={saveRecurring} className="w-full gradient-primary text-primary-foreground gap-2">
+            {/* Inline Buttons */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-sm text-muted-foreground flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5" /> כפתורי URL
+                </Label>
+                <button type="button" onClick={() => setRButtons([...rButtons, { text: "", url: "" }])}
+                  className="text-xs text-primary hover:underline flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> הוסף כפתור
+                </button>
+              </div>
+              {rButtons.map((btn, i) => (
+                <div key={i} className="flex gap-2 items-center mb-2">
+                  <Input value={btn.text} onChange={e => {
+                    const updated = [...rButtons];
+                    updated[i] = { ...updated[i], text: e.target.value };
+                    setRButtons(updated);
+                  }} placeholder="טקסט" className="bg-secondary border-border text-sm flex-1" />
+                  <Input value={btn.url} onChange={e => {
+                    const updated = [...rButtons];
+                    updated[i] = { ...updated[i], url: e.target.value };
+                    setRButtons(updated);
+                  }} placeholder="https://..." dir="ltr" className="bg-secondary border-border text-sm flex-1" />
+                  <button type="button" onClick={() => setRButtons(rButtons.filter((_, idx) => idx !== i))}
+                    className="p-1 text-muted-foreground hover:text-destructive">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <Button onClick={saveRecurring} disabled={isSaving} className="w-full gradient-primary text-primary-foreground gap-2">
               <Repeat className="w-4 h-4" />
-              {editingId ? "עדכן תזמון" : "צור תזמון חוזר"}
+              {isSaving ? "שומר..." : editingId ? "עדכן תזמון" : "צור תזמון חוזר"}
             </Button>
           </div>
         </DialogContent>
@@ -431,12 +613,12 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex gap-3">
-              <div className="flex-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
                 <Label className="text-sm text-muted-foreground">תאריך</Label>
                 <Input type="date" value={editPostDate} onChange={e => setEditPostDate(e.target.value)} className="mt-1 bg-secondary border-border" dir="ltr" />
               </div>
-              <div className="w-28">
+              <div>
                 <Label className="text-sm text-muted-foreground">שעה</Label>
                 <Input type="time" value={editPostTime} onChange={e => setEditPostTime(e.target.value)} className="mt-1 bg-secondary border-border" dir="ltr" />
               </div>
