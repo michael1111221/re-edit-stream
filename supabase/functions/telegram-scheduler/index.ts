@@ -215,39 +215,73 @@ serve(async (req) => {
           const channelHandles: string[] = (schedule.channel_handles as any) || [];
           const caption = schedule.caption || "";
           const inlineButtons: any[] = (schedule.inline_buttons as any) || [];
+          const mediaUrl: string | null = (schedule as any).media_url || null;
+          const mediaType: string | null = (schedule as any).media_type || null;
+
+          const replyMarkup = inlineButtons.length > 0
+            ? {
+                inline_keyboard: inlineButtons
+                  .filter((b: any) => b.text && b.url)
+                  .map((b: any) => [{ text: b.text, url: b.url }]),
+              }
+            : undefined;
 
           console.log(`Running recurring schedule "${schedule.name}" to ${channelHandles.length} channels`);
 
-          for (const chatId of channelHandles) {
+          for (const handle of channelHandles) {
             try {
-              const body: any = {
-                chat_id: chatId,
-                text: caption || schedule.name,
-                parse_mode: "HTML",
-              };
-
-              if (inlineButtons.length > 0) {
-                body.reply_markup = {
-                  inline_keyboard: inlineButtons
-                    .filter((b: any) => b.text && b.url)
-                    .map((b: any) => [{ text: b.text, url: b.url }]),
-                };
+              // Resolve chat ID for private channels
+              let chatId = handle;
+              if (/^\d{6,}$/.test(chatId)) {
+                chatId = `-100${chatId}`;
               }
 
-              const resp = await fetch(`${baseUrl}/sendMessage`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-              });
+              let result: any;
 
-              const result = await resp.json();
+              if (mediaUrl && mediaType) {
+                const actionMap: Record<string, string> = {
+                  photo: "sendPhoto", video: "sendAnimation", document: "sendDocument",
+                };
+                const fieldMap: Record<string, string> = {
+                  photo: "photo", video: "animation", document: "document",
+                };
+                const action = actionMap[mediaType] || "sendDocument";
+                const field = fieldMap[mediaType] || "document";
+
+                const params: Record<string, any> = {
+                  chat_id: chatId,
+                  caption: caption || undefined,
+                  parse_mode: "HTML",
+                };
+
+                result = await sendMediaFromUrl(baseUrl, action, field, mediaUrl, params, replyMarkup);
+
+                if (!result.ok && mediaType === "photo") {
+                  result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", mediaUrl, params, replyMarkup);
+                }
+              } else {
+                const body: any = {
+                  chat_id: chatId,
+                  text: caption || schedule.name,
+                  parse_mode: "HTML",
+                };
+                if (replyMarkup) body.reply_markup = replyMarkup;
+
+                const resp = await fetch(`${baseUrl}/sendMessage`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(body),
+                });
+                result = await resp.json();
+              }
+
               if (result.ok) {
                 console.log(`Recurring: sent to ${chatId}`);
               } else {
                 console.error(`Recurring: failed for ${chatId}:`, result.description);
               }
             } catch (err) {
-              console.error(`Recurring: error sending to ${chatId}:`, err);
+              console.error(`Recurring: error sending to ${handle}:`, err);
             }
           }
 
