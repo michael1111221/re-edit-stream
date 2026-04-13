@@ -83,32 +83,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     "📣", "🔔", "💬", "📝", "🎁", "🛒", "💸", "📈", "🔑", "🌐",
   ];
 
-  const insertAtCursorR = useCallback((before: string, after: string = "") => {
-    const ta = rCaptionRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = rCaption.substring(start, end);
-    const newText = rCaption.substring(0, start) + before + selected + after + rCaption.substring(end);
-    setRCaption(newText);
-    setTimeout(() => {
-      ta.focus();
-      const cursorPos = start + before.length + selected.length + (selected ? after.length : 0);
-      ta.setSelectionRange(selected ? cursorPos : start + before.length, selected ? cursorPos : start + before.length);
-    }, 0);
-  }, [rCaption]);
-
-  const insertEmojiR = useCallback((emoji: string) => {
-    const ta = rCaptionRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const newText = rCaption.substring(0, start) + emoji + rCaption.substring(start);
-    setRCaption(newText);
-    setTimeout(() => {
-      ta.focus();
-      ta.setSelectionRange(start + emoji.length, start + emoji.length);
-    }, 0);
-  }, [rCaption]);
+  // moved below rCaption declaration
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
