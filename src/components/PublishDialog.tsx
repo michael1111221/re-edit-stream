@@ -53,6 +53,7 @@ interface Template {
 export function PublishDialog({ open, onOpenChange, channels, onScheduled }: PublishDialogProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const captionRef = useRef<HTMLTextAreaElement>(null);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [caption, setCaption] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
