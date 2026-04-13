@@ -1,0 +1,1 @@
+ALTER TABLE recurring_schedules ADD COLUMN last_message_ids jsonb NOT NULL DEFAULT '{}'::jsonb;
