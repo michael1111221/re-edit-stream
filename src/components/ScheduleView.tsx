@@ -97,6 +97,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
+  const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
   const [showEditPostDialog, setShowEditPostDialog] = useState(false);
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
