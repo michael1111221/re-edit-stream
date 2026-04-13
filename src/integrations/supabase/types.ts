@@ -277,6 +277,7 @@ export type Database = {
           channel_handles: Json
           created_at: string
           days_of_week: number[]
+          delete_previous: boolean
           id: string
           inline_buttons: Json
           is_active: boolean
@@ -293,6 +294,7 @@ export type Database = {
           channel_handles?: Json
           created_at?: string
           days_of_week?: number[]
+          delete_previous?: boolean
           id?: string
           inline_buttons?: Json
           is_active?: boolean
@@ -309,6 +311,7 @@ export type Database = {
           channel_handles?: Json
           created_at?: string
           days_of_week?: number[]
+          delete_previous?: boolean
           id?: string
           inline_buttons?: Json
           is_active?: boolean
