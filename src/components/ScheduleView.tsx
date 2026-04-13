@@ -114,6 +114,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   const [rDays, setRDays] = useState<number[]>([]);
   const [rTime, setRTime] = useState("12:00");
   const [rButtons, setRButtons] = useState<InlineButton[]>([]);
+  const [rDeletePrevious, setRDeletePrevious] = useState(true);
   const [rFile, setRFile] = useState<File | null>(null);
   const [rFilePreview, setRFilePreview] = useState<string | null>(null);
   const [rMediaUrl, setRMediaUrl] = useState<string | null>(null);
@@ -201,6 +202,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     setRDays([]);
     setRTime("12:00");
     setRButtons([]);
+    setRDeletePrevious(true);
     setRFile(null);
     setRFilePreview(null);
     setRMediaUrl(null);
@@ -220,6 +222,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     setRDays(r.days_of_week);
     setRTime(r.time_of_day);
     setRButtons(r.inline_buttons || []);
+    setRDeletePrevious(r.delete_previous !== false);
     setRFile(null);
     setRFilePreview(null);
     setRMediaUrl(r.media_url);
@@ -306,6 +309,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
         time_of_day: rTime,
         media_url: mediaUrl,
         media_type: mediaType,
+        delete_previous: rDeletePrevious,
       } as any;
 
       if (editingId) {
@@ -680,6 +684,14 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
             <div>
               <Label className="text-sm text-muted-foreground">שעה</Label>
               <Input type="time" value={rTime} onChange={e => setRTime(e.target.value)} className="mt-1 bg-secondary border-border w-32" dir="ltr" />
+            </div>
+
+            {/* Delete Previous Toggle */}
+            <div className="flex items-center justify-between py-2 px-1 rounded-lg bg-secondary/50">
+              <Label className="text-sm text-muted-foreground flex items-center gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" /> מחק פרסום קודם אוטומטית
+              </Label>
+              <Switch checked={rDeletePrevious} onCheckedChange={setRDeletePrevious} />
             </div>
 
             {/* Inline Buttons */}
