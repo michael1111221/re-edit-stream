@@ -281,6 +281,8 @@ export type Database = {
           inline_buttons: Json
           is_active: boolean
           last_run_at: string | null
+          media_type: string | null
+          media_url: string | null
           name: string
           time_of_day: string
           updated_at: string
@@ -294,6 +296,8 @@ export type Database = {
           inline_buttons?: Json
           is_active?: boolean
           last_run_at?: string | null
+          media_type?: string | null
+          media_url?: string | null
           name: string
           time_of_day?: string
           updated_at?: string
@@ -307,6 +311,8 @@ export type Database = {
           inline_buttons?: Json
           is_active?: boolean
           last_run_at?: string | null
+          media_type?: string | null
+          media_url?: string | null
           name?: string
           time_of_day?: string
           updated_at?: string
