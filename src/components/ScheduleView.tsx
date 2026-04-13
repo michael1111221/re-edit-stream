@@ -164,8 +164,22 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
       })));
     }
   };
+  const applyTemplate = (templateId: string) => {
+    const t = templates.find(t => t.id === templateId);
+    if (!t) return;
+    setRCaption(t.caption);
+    setRChannels(t.channel_handles);
+    setRButtons(t.inline_buttons || []);
+    if (t.media_url) {
+      setRMediaUrl(t.media_url);
+      setRMediaType(t.media_type);
+      setRFile(null);
+      setRFilePreview(null);
+    }
+    toast({ title: `✅ תבנית "${t.name}" נטענה` });
+  };
 
-  const loadRecurring = async () => {
+
     const { data } = await supabase.from("recurring_schedules").select("*").order("created_at", { ascending: false });
     if (data) {
       setRecurringSchedules(data.map(r => ({
