@@ -228,12 +228,35 @@ serve(async (req) => {
 
           console.log(`Running recurring schedule "${schedule.name}" to ${channelHandles.length} channels`);
 
+          const lastMessageIds: Record<string, number> = (schedule as any).last_message_ids || {};
+          const newMessageIds: Record<string, number> = {};
+
           for (const handle of channelHandles) {
             try {
               // Resolve chat ID for private channels
               let chatId = handle;
               if (/^\d{6,}$/.test(chatId)) {
                 chatId = `-100${chatId}`;
+              }
+
+              // Delete previous message if exists
+              const prevMsgId = lastMessageIds[chatId] || lastMessageIds[handle];
+              if (prevMsgId) {
+                try {
+                  const delResp = await fetch(`${baseUrl}/deleteMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chat_id: chatId, message_id: prevMsgId }),
+                  });
+                  const delResult = await delResp.json();
+                  if (delResult.ok) {
+                    console.log(`Recurring: deleted previous message ${prevMsgId} from ${chatId}`);
+                  } else {
+                    console.log(`Recurring: could not delete previous message ${prevMsgId} from ${chatId}: ${delResult.description}`);
+                  }
+                } catch (delErr) {
+                  console.log(`Recurring: delete error for ${chatId}:`, delErr);
+                }
               }
 
               let result: any;
@@ -276,7 +299,11 @@ serve(async (req) => {
               }
 
               if (result.ok) {
-                console.log(`Recurring: sent to ${chatId}`);
+                const sentMsgId = result.result?.message_id;
+                if (sentMsgId) {
+                  newMessageIds[chatId] = sentMsgId;
+                }
+                console.log(`Recurring: sent to ${chatId}, message_id=${sentMsgId}`);
               } else {
                 console.error(`Recurring: failed for ${chatId}:`, result.description);
               }
@@ -287,7 +314,7 @@ serve(async (req) => {
 
           await supabase
             .from("recurring_schedules")
-            .update({ last_run_at: new Date().toISOString() })
+            .update({ last_run_at: new Date().toISOString(), last_message_ids: newMessageIds })
             .eq("id", schedule.id);
 
         } catch (schedError) {
