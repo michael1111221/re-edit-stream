@@ -280,6 +280,7 @@ export type Database = {
           id: string
           inline_buttons: Json
           is_active: boolean
+          last_message_ids: Json
           last_run_at: string | null
           media_type: string | null
           media_url: string | null
@@ -295,6 +296,7 @@ export type Database = {
           id?: string
           inline_buttons?: Json
           is_active?: boolean
+          last_message_ids?: Json
           last_run_at?: string | null
           media_type?: string | null
           media_url?: string | null
@@ -310,6 +312,7 @@ export type Database = {
           id?: string
           inline_buttons?: Json
           is_active?: boolean
+          last_message_ids?: Json
           last_run_at?: string | null
           media_type?: string | null
           media_url?: string | null
