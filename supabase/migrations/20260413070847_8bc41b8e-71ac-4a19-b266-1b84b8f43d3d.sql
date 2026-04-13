@@ -1,0 +1,1 @@
+ALTER TABLE public.recurring_schedules ADD COLUMN delete_previous boolean NOT NULL DEFAULT true;

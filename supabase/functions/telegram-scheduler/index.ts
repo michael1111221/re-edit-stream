@@ -239,9 +239,10 @@ serve(async (req) => {
                 chatId = `-100${chatId}`;
               }
 
-              // Delete previous message if exists
+              // Delete previous message if enabled and exists
+              const shouldDelete = (schedule as any).delete_previous !== false;
               const prevMsgId = lastMessageIds[chatId] || lastMessageIds[handle];
-              if (prevMsgId) {
+              if (shouldDelete && prevMsgId) {
                 try {
                   const delResp = await fetch(`${baseUrl}/deleteMessage`, {
                     method: "POST",
