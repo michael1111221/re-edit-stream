@@ -37,6 +37,7 @@ import {
   Italic,
   Smile,
   FileImage,
+  FolderOpen,
 } from "lucide-react";
 import { format } from "date-fns";
 import { he } from "date-fns/locale";
@@ -45,6 +46,16 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Json } from "@/integrations/supabase/types";
 import { InlineButton } from "@/lib/telegram";
+
+interface SavedTemplate {
+  id: string;
+  name: string;
+  caption: string;
+  channel_handles: string[];
+  inline_buttons: InlineButton[];
+  media_url: string | null;
+  media_type: string | null;
+}
 
 const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
@@ -86,6 +97,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   
   const today = new Date();
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
+  const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [showRecurringDialog, setShowRecurringDialog] = useState(false);
   const [showEditPostDialog, setShowEditPostDialog] = useState(false);
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
@@ -139,7 +151,33 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
 
   useEffect(() => {
     loadRecurring();
+    loadTemplates();
   }, []);
+
+  const loadTemplates = async () => {
+    const { data } = await supabase.from("post_templates").select("*").order("created_at", { ascending: false });
+    if (data) {
+      setTemplates(data.map(t => ({
+        ...t,
+        channel_handles: (t.channel_handles as any) || [],
+        inline_buttons: (t.inline_buttons as any) || [],
+      })));
+    }
+  };
+  const applyTemplate = (templateId: string) => {
+    const t = templates.find(t => t.id === templateId);
+    if (!t) return;
+    setRCaption(t.caption);
+    setRChannels(t.channel_handles);
+    setRButtons(t.inline_buttons || []);
+    if (t.media_url) {
+      setRMediaUrl(t.media_url);
+      setRMediaType(t.media_type);
+      setRFile(null);
+      setRFilePreview(null);
+    }
+    toast({ title: `✅ תבנית "${t.name}" נטענה` });
+  };
 
   const loadRecurring = async () => {
     const { data } = await supabase.from("recurring_schedules").select("*").order("created_at", { ascending: false });
@@ -486,6 +524,30 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
               {editingId ? "עריכת תזמון חוזר" : "תזמון חוזר חדש"}
             </DialogTitle>
           </DialogHeader>
+
+          {/* Load Template */}
+          {templates.length > 0 && (
+            <div className="border border-border rounded-lg p-3 bg-secondary/30">
+              <Label className="text-sm text-muted-foreground flex items-center gap-1.5 mb-2">
+                <FolderOpen className="w-4 h-4 text-primary" /> טען מתבנית שמורה
+              </Label>
+              <div className="space-y-1">
+                {templates.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyTemplate(t.id)}
+                    className="w-full text-right text-sm text-foreground hover:text-primary hover:bg-muted px-2 py-1.5 rounded transition-colors flex items-center justify-between"
+                  >
+                    <span>{t.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t.media_url ? "📎 " : ""}{t.caption ? t.caption.substring(0, 20) + (t.caption.length > 20 ? "..." : "") : "ללא טקסט"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-4">
             <div>
