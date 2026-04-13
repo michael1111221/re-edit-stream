@@ -525,6 +525,30 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
             </DialogTitle>
           </DialogHeader>
 
+          {/* Load Template */}
+          {templates.length > 0 && (
+            <div className="border border-border rounded-lg p-3 bg-secondary/30">
+              <Label className="text-sm text-muted-foreground flex items-center gap-1.5 mb-2">
+                <FolderOpen className="w-4 h-4 text-primary" /> טען מתבנית שמורה
+              </Label>
+              <div className="space-y-1">
+                {templates.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyTemplate(t.id)}
+                    className="w-full text-right text-sm text-foreground hover:text-primary hover:bg-muted px-2 py-1.5 rounded transition-colors flex items-center justify-between"
+                  >
+                    <span>{t.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t.media_url ? "📎 " : ""}{t.caption ? t.caption.substring(0, 20) + (t.caption.length > 20 ? "..." : "") : "ללא טקסט"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <Label className="text-sm text-muted-foreground">שם</Label>
