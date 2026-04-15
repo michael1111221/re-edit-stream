@@ -233,20 +233,26 @@ serve(async (req) => {
           // Fetch last_message_ids from ALL active recurring schedules for cross-schedule deletion
           const { data: allSchedules } = await supabase
             .from("recurring_schedules")
-            .select("id, last_message_ids")
+            .select("id, last_message_ids, delete_previous")
             .eq("is_active", true);
 
-          const allMessageIds: Record<string, { scheduleId: string; messageId: number }> = {};
+          // Collect ALL message_ids per channel from ALL schedules (not just the highest)
+          const allChannelMessages: Record<string, Array<{ scheduleId: string; messageId: number }>> = {};
           if (allSchedules) {
             for (const s of allSchedules) {
+              if (s.id === schedule.id) continue; // skip self - we handle own messages separately
               const ids: Record<string, number> = (s as any).last_message_ids || {};
               for (const [key, msgId] of Object.entries(ids)) {
-                // Keep the most recent (highest) message_id per channel
-                if (!allMessageIds[key] || msgId > allMessageIds[key].messageId) {
-                  allMessageIds[key] = { scheduleId: s.id, messageId: msgId };
-                }
+                if (!allChannelMessages[key]) allChannelMessages[key] = [];
+                allChannelMessages[key].push({ scheduleId: s.id, messageId: msgId });
               }
             }
+          }
+          // Also add own previous messages
+          const ownPrevIds: Record<string, number> = (schedule as any).last_message_ids || {};
+          for (const [key, msgId] of Object.entries(ownPrevIds)) {
+            if (!allChannelMessages[key]) allChannelMessages[key] = [];
+            allChannelMessages[key].push({ scheduleId: schedule.id, messageId: msgId });
           }
 
           for (const handle of channelHandles) {
