@@ -228,8 +228,26 @@ serve(async (req) => {
 
           console.log(`Running recurring schedule "${schedule.name}" to ${channelHandles.length} channels`);
 
-          const lastMessageIds: Record<string, number> = (schedule as any).last_message_ids || {};
           const newMessageIds: Record<string, number> = {};
+
+          // Fetch last_message_ids from ALL active recurring schedules for cross-schedule deletion
+          const { data: allSchedules } = await supabase
+            .from("recurring_schedules")
+            .select("id, last_message_ids")
+            .eq("is_active", true);
+
+          const allMessageIds: Record<string, { scheduleId: string; messageId: number }> = {};
+          if (allSchedules) {
+            for (const s of allSchedules) {
+              const ids: Record<string, number> = (s as any).last_message_ids || {};
+              for (const [key, msgId] of Object.entries(ids)) {
+                // Keep the most recent (highest) message_id per channel
+                if (!allMessageIds[key] || msgId > allMessageIds[key].messageId) {
+                  allMessageIds[key] = { scheduleId: s.id, messageId: msgId };
+                }
+              }
+            }
+          }
 
           for (const handle of channelHandles) {
             try {
@@ -239,9 +257,10 @@ serve(async (req) => {
                 chatId = `-100${chatId}`;
               }
 
-              // Delete previous message if enabled and exists
+              // Delete previous message if enabled - check ALL schedules' messages for this channel
               const shouldDelete = (schedule as any).delete_previous !== false;
-              const prevMsgId = lastMessageIds[chatId] || lastMessageIds[handle];
+              const prevEntry = allMessageIds[chatId] || allMessageIds[handle];
+              const prevMsgId = prevEntry?.messageId;
               if (shouldDelete && prevMsgId) {
                 try {
                   const delResp = await fetch(`${baseUrl}/deleteMessage`, {
@@ -251,7 +270,20 @@ serve(async (req) => {
                   });
                   const delResult = await delResp.json();
                   if (delResult.ok) {
-                    console.log(`Recurring: deleted previous message ${prevMsgId} from ${chatId}`);
+                    console.log(`Recurring: deleted previous message ${prevMsgId} from ${chatId} (from schedule ${prevEntry.scheduleId})`);
+                    // Clear the old entry from the source schedule if it's a different one
+                    if (prevEntry.scheduleId !== schedule.id) {
+                      const oldSchedule = allSchedules?.find(s => s.id === prevEntry.scheduleId);
+                      if (oldSchedule) {
+                        const oldIds = { ...((oldSchedule as any).last_message_ids || {}) };
+                        delete oldIds[chatId];
+                        delete oldIds[handle];
+                        await supabase
+                          .from("recurring_schedules")
+                          .update({ last_message_ids: oldIds })
+                          .eq("id", prevEntry.scheduleId);
+                      }
+                    }
                   } else {
                     console.log(`Recurring: could not delete previous message ${prevMsgId} from ${chatId}: ${delResult.description}`);
                   }
