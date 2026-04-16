@@ -66,7 +66,7 @@ interface RecurringSchedule {
   channel_handles: string[];
   inline_buttons: InlineButton[];
   days_of_week: number[];
-  time_of_day: string;
+  time_of_day: string; // comma-separated times e.g. "08:00,12:00,20:00"
   is_active: boolean;
   last_run_at: string | null;
   media_url: string | null;
@@ -113,7 +113,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   const [rCaption, setRCaption] = useState("");
   const [rChannels, setRChannels] = useState<string[]>([]);
   const [rDays, setRDays] = useState<number[]>([]);
-  const [rTime, setRTime] = useState("12:00");
+  const [rTimes, setRTimes] = useState<string[]>(["12:00"]);
   const [rButtons, setRButtons] = useState<InlineButton[]>([]);
   const [rDeletePrevious, setRDeletePrevious] = useState(true);
   const [rFile, setRFile] = useState<File | null>(null);
@@ -201,7 +201,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     setRCaption("");
     setRChannels([]);
     setRDays([]);
-    setRTime("12:00");
+    setRTimes(["12:00"]);
     setRButtons([]);
     setRDeletePrevious(true);
     setRFile(null);
@@ -221,7 +221,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
     setRCaption(r.caption);
     setRChannels(r.channel_handles);
     setRDays(r.days_of_week);
-    setRTime(r.time_of_day);
+    setRTimes(r.time_of_day ? r.time_of_day.split(",").filter(Boolean) : ["12:00"]);
     setRButtons(r.inline_buttons || []);
     setRDeletePrevious(r.delete_previous !== false);
     setRFile(null);
@@ -307,7 +307,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
         channel_handles: rChannels as unknown as Json,
         inline_buttons: validButtons as unknown as Json,
         days_of_week: rDays,
-        time_of_day: rTime,
+        time_of_day: rTimes.join(","),
         media_url: mediaUrl,
         media_type: mediaType,
         delete_previous: rDeletePrevious,
@@ -426,7 +426,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {r.days_of_week.map(d => DAY_NAMES[d]).join(", ")} • {r.time_of_day}
+                    {r.days_of_week.map(d => DAY_NAMES[d]).join(", ")} • {r.time_of_day.split(",").join(", ")}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {r.channel_handles.length} ערוצים
@@ -681,10 +681,32 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
               </div>
             </div>
 
-            {/* Time */}
+            {/* Times */}
             <div>
-              <Label className="text-sm text-muted-foreground">שעה</Label>
-              <Input type="time" value={rTime} onChange={e => setRTime(e.target.value)} className="mt-1 bg-secondary border-border w-32" dir="ltr" />
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-sm text-muted-foreground">שעות</Label>
+                <button type="button" onClick={() => setRTimes([...rTimes, "12:00"])}
+                  className="text-xs text-primary hover:underline flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> הוסף שעה
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {rTimes.map((t, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <Input type="time" value={t} onChange={e => {
+                      const updated = [...rTimes];
+                      updated[i] = e.target.value;
+                      setRTimes(updated);
+                    }} className="bg-secondary border-border w-28" dir="ltr" />
+                    {rTimes.length > 1 && (
+                      <button type="button" onClick={() => setRTimes(rTimes.filter((_, idx) => idx !== i))}
+                        className="p-1 text-muted-foreground hover:text-destructive">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Delete Previous Toggle */}

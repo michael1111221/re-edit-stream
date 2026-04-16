@@ -191,23 +191,29 @@ serve(async (req) => {
       for (const schedule of recurringSchedules) {
         try {
           const days: number[] = schedule.days_of_week || [];
-          const timeOfDay: string = schedule.time_of_day || "12:00";
+          const timeOfDayRaw: string = schedule.time_of_day || "12:00";
 
           if (!days.includes(currentDay)) continue;
 
-          const [schedH, schedM] = timeOfDay.split(":").map(Number);
-          const schedMinutes = schedH * 60 + schedM;
-          const nowMinutes = currentHour * 60 + currentMinute;
-          if (Math.abs(nowMinutes - schedMinutes) > 1) continue;
+          // Support multiple times per day (comma-separated)
+          const times = timeOfDayRaw.split(",").map(t => t.trim()).filter(Boolean);
+          let matchedTime: string | null = null;
+          for (const t of times) {
+            const [schedH, schedM] = t.split(":").map(Number);
+            const schedMinutes = schedH * 60 + schedM;
+            const nowMinutes = currentHour * 60 + currentMinute;
+            if (Math.abs(nowMinutes - schedMinutes) <= 1) {
+              matchedTime = t;
+              break;
+            }
+          }
+          if (!matchedTime) continue;
 
+          // Prevent double-firing: skip if last_run_at is within 2 minutes
           if (schedule.last_run_at) {
             const lastRun = new Date(schedule.last_run_at);
-            const lastRunIsrael = new Date(lastRun.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
-            if (
-              lastRunIsrael.getFullYear() === israelTime.getFullYear() &&
-              lastRunIsrael.getMonth() === israelTime.getMonth() &&
-              lastRunIsrael.getDate() === israelTime.getDate()
-            ) {
+            const diffMs = nowDate.getTime() - lastRun.getTime();
+            if (diffMs < 2 * 60 * 1000) {
               continue;
             }
           }
