@@ -66,7 +66,7 @@ interface RecurringSchedule {
   channel_handles: string[];
   inline_buttons: InlineButton[];
   days_of_week: number[];
-  time_of_day: string;
+  time_of_day: string; // comma-separated times e.g. "08:00,12:00,20:00"
   is_active: boolean;
   last_run_at: string | null;
   media_url: string | null;
@@ -113,7 +113,7 @@ export function ScheduleView({ schedule, channels = [], onDelete, onRefresh }: S
   const [rCaption, setRCaption] = useState("");
   const [rChannels, setRChannels] = useState<string[]>([]);
   const [rDays, setRDays] = useState<number[]>([]);
-  const [rTime, setRTime] = useState("12:00");
+  const [rTimes, setRTimes] = useState<string[]>(["12:00"]);
   const [rButtons, setRButtons] = useState<InlineButton[]>([]);
   const [rDeletePrevious, setRDeletePrevious] = useState(true);
   const [rFile, setRFile] = useState<File | null>(null);
