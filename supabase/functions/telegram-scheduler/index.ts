@@ -11,11 +11,7 @@ async function sendMediaFromUrl(
   params: Record<string, any>,
   replyMarkup?: any
 ) {
-  // Try sending by URL first
-  const body: any = {
-    ...params,
-    [fieldName]: mediaUrl,
-  };
+  const body: any = { ...params, [fieldName]: mediaUrl };
   if (replyMarkup) body.reply_markup = replyMarkup;
 
   let resp = await fetch(`${baseUrl}/${action}`, {
@@ -24,35 +20,26 @@ async function sendMediaFromUrl(
     body: JSON.stringify(body),
   });
   let result = await resp.json();
-
   if (result.ok) return result;
 
-  // Fallback: download and upload as multipart
   console.log(`URL send failed for ${action}, trying multipart upload...`);
   try {
     const fileResp = await fetch(mediaUrl);
     if (!fileResp.ok) return result;
     const fileBlob = await fileResp.blob();
-    
-    const fallbackName = action === "sendPhoto" ? "image.jpg" : 
+    const fallbackName = action === "sendPhoto" ? "image.jpg" :
                          action === "sendAnimation" ? "animation.mp4" : "file";
-
     const formData = new FormData();
     formData.append(fieldName, fileBlob, fallbackName);
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null) formData.append(k, String(v));
     }
     if (replyMarkup) formData.append("reply_markup", JSON.stringify(replyMarkup));
-
-    resp = await fetch(`${baseUrl}/${action}`, {
-      method: "POST",
-      body: formData,
-    });
+    resp = await fetch(`${baseUrl}/${action}`, { method: "POST", body: formData });
     result = await resp.json();
   } catch (e) {
     console.error("Multipart fallback failed:", e);
   }
-
   return result;
 }
 
@@ -69,8 +56,25 @@ serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const baseUrl = `${TELEGRAM_API}${BOT_TOKEN}`;
 
+  // Run log
+  const runStart = new Date().toISOString();
+  const runDetails: Array<{
+    type: "scheduled" | "recurring";
+    schedule_name?: string;
+    post_title?: string;
+    channel: string;
+    status: "success" | "failed" | "skipped";
+    message_id?: number;
+    error?: string;
+    at: string;
+  }> = [];
+  let sendsSuccess = 0;
+  let sendsFailed = 0;
+  let recurringMatched = 0;
+  let topLevelError: string | null = null;
+
   try {
-    // === 1. Process one-time scheduled posts ===
+    // === 1. One-time scheduled posts ===
     const now = new Date().toISOString();
     const { data: duePosts, error } = await supabase
       .from("scheduled_posts")
@@ -80,106 +84,72 @@ serve(async (req) => {
       .order("scheduled_for", { ascending: true })
       .limit(10);
 
-    if (error) {
-      console.error("Error fetching scheduled posts:", error);
-    }
+    if (error) console.error("Error fetching scheduled posts:", error);
 
     if (duePosts && duePosts.length > 0) {
       console.log(`Processing ${duePosts.length} scheduled posts`);
 
       for (const post of duePosts) {
+        const channel = post.channel;
+        const channelLabel = channel?.name || channel?.handle || "unknown";
         try {
-          const channel = post.channel;
           let chatId = channel?.telegram_chat_id?.trim() || channel?.handle;
           if (!chatId) {
-            console.error(`No channel handle for post ${post.id}`);
+            runDetails.push({ type: "scheduled", post_title: post.title, channel: channelLabel, status: "skipped", error: "no chat id", at: new Date().toISOString() });
             continue;
           }
-          if (/^\d{6,}$/.test(chatId)) {
-            chatId = `-100${chatId}`;
-          }
+          if (/^\d{6,}$/.test(chatId)) chatId = `-100${chatId}`;
 
           const inlineButtons: any[] = (post.inline_buttons as any) || [];
           const replyMarkup = inlineButtons.length > 0
-            ? {
-                inline_keyboard: inlineButtons
-                  .filter((b: any) => b.text && b.url)
-                  .map((b: any) => [{ text: b.text, url: b.url }]),
-              }
+            ? { inline_keyboard: inlineButtons.filter((b: any) => b.text && b.url).map((b: any) => [{ text: b.text, url: b.url }]) }
             : undefined;
 
           let result: any;
 
           if (post.media_url && post.media_type) {
-            // Send with media
-            const actionMap: Record<string, string> = {
-              photo: "sendPhoto",
-              video: "sendAnimation",
-              document: "sendDocument",
-            };
-            const fieldMap: Record<string, string> = {
-              photo: "photo",
-              video: "animation",
-              document: "document",
-            };
-
+            const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
+            const fieldMap: Record<string, string> = { photo: "photo", video: "animation", document: "document" };
             const action = actionMap[post.media_type] || "sendDocument";
             const field = fieldMap[post.media_type] || "document";
-
-            const params: Record<string, any> = {
-              chat_id: chatId,
-              caption: post.title || undefined,
-              parse_mode: "HTML",
-            };
-
+            const params: Record<string, any> = { chat_id: chatId, caption: post.title || undefined, parse_mode: "HTML" };
             result = await sendMediaFromUrl(baseUrl, action, field, post.media_url, params, replyMarkup);
-
-            // Fallback: if photo fails, try as document
             if (!result.ok && post.media_type === "photo") {
-              console.log(`Photo failed, retrying as document for post ${post.id}`);
               result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", post.media_url, params, replyMarkup);
             }
           } else {
-            // Text only
-            const body: any = {
-              chat_id: chatId,
-              text: post.title || "פרסום מתוזמן",
-              parse_mode: "HTML",
-            };
+            const body: any = { chat_id: chatId, text: post.title || "פרסום מתוזמן", parse_mode: "HTML" };
             if (replyMarkup) body.reply_markup = replyMarkup;
-
             const resp = await fetch(`${baseUrl}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
             });
             result = await resp.json();
           }
 
           if (result.ok) {
-            await supabase
-              .from("scheduled_posts")
-              .update({ published: true })
-              .eq("id", post.id);
+            await supabase.from("scheduled_posts").update({ published: true }).eq("id", post.id);
+            sendsSuccess++;
+            runDetails.push({ type: "scheduled", post_title: post.title, channel: channelLabel, status: "success", message_id: result.result?.message_id, at: new Date().toISOString() });
             console.log(`Published post ${post.id} to ${chatId}`);
           } else {
+            sendsFailed++;
+            runDetails.push({ type: "scheduled", post_title: post.title, channel: channelLabel, status: "failed", error: result.description, at: new Date().toISOString() });
             console.error(`Failed to publish post ${post.id}:`, result.description);
           }
         } catch (postError) {
+          sendsFailed++;
+          const msg = postError instanceof Error ? postError.message : String(postError);
+          runDetails.push({ type: "scheduled", post_title: post.title, channel: channelLabel, status: "failed", error: msg, at: new Date().toISOString() });
           console.error(`Error processing post ${post.id}:`, postError);
         }
       }
     }
 
-    // === 2. Process recurring schedules ===
+    // === 2. Recurring schedules ===
     const { data: recurringSchedules, error: rError } = await supabase
-      .from("recurring_schedules")
-      .select("*")
-      .eq("is_active", true);
+      .from("recurring_schedules").select("*").eq("is_active", true);
 
-    if (rError) {
-      console.error("Error fetching recurring schedules:", rError);
-    }
+    if (rError) console.error("Error fetching recurring schedules:", rError);
 
     if (recurringSchedules && recurringSchedules.length > 0) {
       const nowDate = new Date();
@@ -188,33 +158,23 @@ serve(async (req) => {
       const currentHour = israelTime.getHours();
       const currentMinute = israelTime.getMinutes();
 
-      // Load all channels for handle/URL → telegram_chat_id resolution
-      const { data: allChannels } = await supabase
-        .from("channels")
-        .select("handle, telegram_chat_id");
+      const { data: allChannels } = await supabase.from("channels").select("handle, telegram_chat_id");
       const channelChatIdMap: Record<string, string> = {};
       if (allChannels) {
         for (const c of allChannels) {
-          if (c.handle && c.telegram_chat_id) {
-            channelChatIdMap[c.handle] = c.telegram_chat_id;
-          }
+          if (c.handle && c.telegram_chat_id) channelChatIdMap[c.handle] = c.telegram_chat_id;
         }
       }
 
       const resolveChatId = (handle: string): string => {
-        // 1. Direct map lookup (URL or handle stored in channels)
         if (channelChatIdMap[handle]) return channelChatIdMap[handle];
-        // 2. Pure numeric → assume channel chat_id
         if (/^-?\d{6,}$/.test(handle)) {
           if (/^\d{6,}$/.test(handle)) return `-100${handle}`;
           return handle;
         }
-        // 3. @username
         if (handle.startsWith("@")) return handle;
-        // 4. https://t.me/username (public)
         const publicMatch = handle.match(/^https?:\/\/t\.me\/([^/+][^/?#]*)/);
         if (publicMatch) return `@${publicMatch[1]}`;
-        // 5. Fallback: return as-is (will likely fail, but logged)
         return handle;
       };
 
@@ -222,32 +182,24 @@ serve(async (req) => {
         try {
           const days: number[] = schedule.days_of_week || [];
           const timeOfDayRaw: string = schedule.time_of_day || "12:00";
-
           if (!days.includes(currentDay)) continue;
 
-          // Support multiple times per day (comma-separated)
           const times = timeOfDayRaw.split(",").map(t => t.trim()).filter(Boolean);
           let matchedTime: string | null = null;
           for (const t of times) {
             const [schedH, schedM] = t.split(":").map(Number);
             const schedMinutes = schedH * 60 + schedM;
             const nowMinutes = currentHour * 60 + currentMinute;
-            if (Math.abs(nowMinutes - schedMinutes) <= 1) {
-              matchedTime = t;
-              break;
-            }
+            if (Math.abs(nowMinutes - schedMinutes) <= 1) { matchedTime = t; break; }
           }
           if (!matchedTime) continue;
 
-          // Prevent double-firing: skip if last_run_at is within 2 minutes
           if (schedule.last_run_at) {
             const lastRun = new Date(schedule.last_run_at);
-            const diffMs = nowDate.getTime() - lastRun.getTime();
-            if (diffMs < 2 * 60 * 1000) {
-              continue;
-            }
+            if (nowDate.getTime() - lastRun.getTime() < 2 * 60 * 1000) continue;
           }
 
+          recurringMatched++;
           const channelHandles: string[] = (schedule.channel_handles as any) || [];
           const caption = schedule.caption || "";
           const inlineButtons: any[] = (schedule.inline_buttons as any) || [];
@@ -255,28 +207,22 @@ serve(async (req) => {
           const mediaType: string | null = (schedule as any).media_type || null;
 
           const replyMarkup = inlineButtons.length > 0
-            ? {
-                inline_keyboard: inlineButtons
-                  .filter((b: any) => b.text && b.url)
-                  .map((b: any) => [{ text: b.text, url: b.url }]),
-              }
+            ? { inline_keyboard: inlineButtons.filter((b: any) => b.text && b.url).map((b: any) => [{ text: b.text, url: b.url }]) }
             : undefined;
 
           console.log(`Running recurring schedule "${schedule.name}" to ${channelHandles.length} channels`);
 
           const newMessageIds: Record<string, number> = {};
 
-          // Fetch last_message_ids from ALL active recurring schedules for cross-schedule deletion
           const { data: allSchedules } = await supabase
             .from("recurring_schedules")
             .select("id, last_message_ids, delete_previous")
             .eq("is_active", true);
 
-          // Collect ALL message_ids per channel from ALL schedules (not just the highest)
           const allChannelMessages: Record<string, Array<{ scheduleId: string; messageId: number }>> = {};
           if (allSchedules) {
             for (const s of allSchedules) {
-              if (s.id === schedule.id) continue; // skip self - we handle own messages separately
+              if (s.id === schedule.id) continue;
               const ids: Record<string, number> = (s as any).last_message_ids || {};
               for (const [key, msgId] of Object.entries(ids)) {
                 if (!allChannelMessages[key]) allChannelMessages[key] = [];
@@ -284,7 +230,6 @@ serve(async (req) => {
               }
             }
           }
-          // Also add own previous messages
           const ownPrevIds: Record<string, number> = (schedule as any).last_message_ids || {};
           for (const [key, msgId] of Object.entries(ownPrevIds)) {
             if (!allChannelMessages[key]) allChannelMessages[key] = [];
@@ -293,42 +238,31 @@ serve(async (req) => {
 
           for (const handle of channelHandles) {
             try {
-              // Resolve invite link / URL / handle → real telegram chat_id
               const chatId = resolveChatId(handle);
               if (chatId === handle && handle.includes("t.me/+")) {
-                console.error(`Recurring "${schedule.name}": cannot resolve invite link ${handle} — channel must be saved in DB with telegram_chat_id`);
+                sendsFailed++;
+                runDetails.push({ type: "recurring", schedule_name: schedule.name, channel: handle, status: "skipped", error: "unresolved invite link", at: new Date().toISOString() });
                 continue;
               }
 
-              // Delete ALL previous messages for this channel from ALL schedules
               const shouldDelete = (schedule as any).delete_previous !== false;
               const prevEntries = allChannelMessages[chatId] || allChannelMessages[handle] || [];
               if (shouldDelete && prevEntries.length > 0) {
                 for (const prevEntry of prevEntries) {
                   try {
                     const delResp = await fetch(`${baseUrl}/deleteMessage`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
+                      method: "POST", headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ chat_id: chatId, message_id: prevEntry.messageId }),
                     });
                     const delResult = await delResp.json();
-                    if (delResult.ok) {
-                      console.log(`Recurring: deleted previous message ${prevEntry.messageId} from ${chatId} (from schedule ${prevEntry.scheduleId})`);
-                      // Clear the old entry from the source schedule
-                      if (prevEntry.scheduleId !== schedule.id) {
-                        const oldSchedule = allSchedules?.find(s => s.id === prevEntry.scheduleId);
-                        if (oldSchedule) {
-                          const oldIds = { ...((oldSchedule as any).last_message_ids || {}) };
-                          delete oldIds[chatId];
-                          delete oldIds[handle];
-                          await supabase
-                            .from("recurring_schedules")
-                            .update({ last_message_ids: oldIds })
-                            .eq("id", prevEntry.scheduleId);
-                        }
+                    if (delResult.ok && prevEntry.scheduleId !== schedule.id) {
+                      const oldSchedule = allSchedules?.find(s => s.id === prevEntry.scheduleId);
+                      if (oldSchedule) {
+                        const oldIds = { ...((oldSchedule as any).last_message_ids || {}) };
+                        delete oldIds[chatId];
+                        delete oldIds[handle];
+                        await supabase.from("recurring_schedules").update({ last_message_ids: oldIds }).eq("id", prevEntry.scheduleId);
                       }
-                    } else {
-                      console.log(`Recurring: could not delete message ${prevEntry.messageId} from ${chatId}: ${delResult.description}`);
                     }
                   } catch (delErr) {
                     console.log(`Recurring: delete error for ${chatId}:`, delErr);
@@ -337,54 +271,40 @@ serve(async (req) => {
               }
 
               let result: any;
-
               if (mediaUrl && mediaType) {
-                const actionMap: Record<string, string> = {
-                  photo: "sendPhoto", video: "sendAnimation", document: "sendDocument",
-                };
-                const fieldMap: Record<string, string> = {
-                  photo: "photo", video: "animation", document: "document",
-                };
+                const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
+                const fieldMap: Record<string, string> = { photo: "photo", video: "animation", document: "document" };
                 const action = actionMap[mediaType] || "sendDocument";
                 const field = fieldMap[mediaType] || "document";
-
-                const params: Record<string, any> = {
-                  chat_id: chatId,
-                  caption: caption || undefined,
-                  parse_mode: "HTML",
-                };
-
+                const params: Record<string, any> = { chat_id: chatId, caption: caption || undefined, parse_mode: "HTML" };
                 result = await sendMediaFromUrl(baseUrl, action, field, mediaUrl, params, replyMarkup);
-
                 if (!result.ok && mediaType === "photo") {
                   result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", mediaUrl, params, replyMarkup);
                 }
               } else {
-                const body: any = {
-                  chat_id: chatId,
-                  text: caption || schedule.name,
-                  parse_mode: "HTML",
-                };
+                const body: any = { chat_id: chatId, text: caption || schedule.name, parse_mode: "HTML" };
                 if (replyMarkup) body.reply_markup = replyMarkup;
-
                 const resp = await fetch(`${baseUrl}/sendMessage`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(body),
+                  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
                 });
                 result = await resp.json();
               }
 
               if (result.ok) {
                 const sentMsgId = result.result?.message_id;
-                if (sentMsgId) {
-                  newMessageIds[chatId] = sentMsgId;
-                }
+                if (sentMsgId) newMessageIds[chatId] = sentMsgId;
+                sendsSuccess++;
+                runDetails.push({ type: "recurring", schedule_name: schedule.name, channel: chatId, status: "success", message_id: sentMsgId, at: new Date().toISOString() });
                 console.log(`Recurring: sent to ${chatId}, message_id=${sentMsgId}`);
               } else {
+                sendsFailed++;
+                runDetails.push({ type: "recurring", schedule_name: schedule.name, channel: chatId, status: "failed", error: result.description, at: new Date().toISOString() });
                 console.error(`Recurring: failed for ${chatId}:`, result.description);
               }
             } catch (err) {
+              sendsFailed++;
+              const msg = err instanceof Error ? err.message : String(err);
+              runDetails.push({ type: "recurring", schedule_name: schedule.name, channel: handle, status: "failed", error: msg, at: new Date().toISOString() });
               console.error(`Recurring: error sending to ${handle}:`, err);
             }
           }
@@ -395,17 +315,40 @@ serve(async (req) => {
             .eq("id", schedule.id);
 
         } catch (schedError) {
+          const msg = schedError instanceof Error ? schedError.message : String(schedError);
+          runDetails.push({ type: "recurring", schedule_name: schedule.name, channel: "—", status: "failed", error: msg, at: new Date().toISOString() });
           console.error(`Error processing recurring schedule ${schedule.id}:`, schedError);
         }
       }
     }
 
+    // Persist run log (only if there was activity OR every invocation? log only meaningful runs)
+    if ((duePosts?.length || 0) > 0 || recurringMatched > 0 || sendsFailed > 0) {
+      await supabase.from("scheduler_runs").insert({
+        started_at: runStart,
+        finished_at: new Date().toISOString(),
+        scheduled_processed: duePosts?.length || 0,
+        recurring_matched: recurringMatched,
+        sends_success: sendsSuccess,
+        sends_failed: sendsFailed,
+        details: runDetails,
+      });
+    }
+
     return new Response(JSON.stringify({ message: "Done", scheduled: duePosts?.length || 0, recurring: recurringSchedules?.length || 0 }));
   } catch (error) {
+    topLevelError = error instanceof Error ? error.message : "Unknown error";
     console.error("Scheduler error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500 }
-    );
+    await supabase.from("scheduler_runs").insert({
+      started_at: runStart,
+      finished_at: new Date().toISOString(),
+      scheduled_processed: 0,
+      recurring_matched: recurringMatched,
+      sends_success: sendsSuccess,
+      sends_failed: sendsFailed,
+      error: topLevelError,
+      details: runDetails,
+    });
+    return new Response(JSON.stringify({ error: topLevelError }), { status: 500 });
   }
 });
