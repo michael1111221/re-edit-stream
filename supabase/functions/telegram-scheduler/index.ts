@@ -188,6 +188,36 @@ serve(async (req) => {
       const currentHour = israelTime.getHours();
       const currentMinute = israelTime.getMinutes();
 
+      // Load all channels for handle/URL → telegram_chat_id resolution
+      const { data: allChannels } = await supabase
+        .from("channels")
+        .select("handle, telegram_chat_id");
+      const channelChatIdMap: Record<string, string> = {};
+      if (allChannels) {
+        for (const c of allChannels) {
+          if (c.handle && c.telegram_chat_id) {
+            channelChatIdMap[c.handle] = c.telegram_chat_id;
+          }
+        }
+      }
+
+      const resolveChatId = (handle: string): string => {
+        // 1. Direct map lookup (URL or handle stored in channels)
+        if (channelChatIdMap[handle]) return channelChatIdMap[handle];
+        // 2. Pure numeric → assume channel chat_id
+        if (/^-?\d{6,}$/.test(handle)) {
+          if (/^\d{6,}$/.test(handle)) return `-100${handle}`;
+          return handle;
+        }
+        // 3. @username
+        if (handle.startsWith("@")) return handle;
+        // 4. https://t.me/username (public)
+        const publicMatch = handle.match(/^https?:\/\/t\.me\/([^/+][^/?#]*)/);
+        if (publicMatch) return `@${publicMatch[1]}`;
+        // 5. Fallback: return as-is (will likely fail, but logged)
+        return handle;
+      };
+
       for (const schedule of recurringSchedules) {
         try {
           const days: number[] = schedule.days_of_week || [];
