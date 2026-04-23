@@ -379,6 +379,42 @@ export type Database = {
           },
         ]
       }
+      scheduler_runs: {
+        Row: {
+          details: Json
+          error: string | null
+          finished_at: string | null
+          id: string
+          recurring_matched: number
+          scheduled_processed: number
+          sends_failed: number
+          sends_success: number
+          started_at: string
+        }
+        Insert: {
+          details?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          recurring_matched?: number
+          scheduled_processed?: number
+          sends_failed?: number
+          sends_success?: number
+          started_at?: string
+        }
+        Update: {
+          details?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          recurring_matched?: number
+          scheduled_processed?: number
+          sends_failed?: number
+          sends_success?: number
+          started_at?: string
+        }
+        Relationships: []
+      }
       system_settings: {
         Row: {
           key: string
