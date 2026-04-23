@@ -293,10 +293,11 @@ serve(async (req) => {
 
           for (const handle of channelHandles) {
             try {
-              // Resolve chat ID for private channels
-              let chatId = handle;
-              if (/^\d{6,}$/.test(chatId)) {
-                chatId = `-100${chatId}`;
+              // Resolve invite link / URL / handle → real telegram chat_id
+              const chatId = resolveChatId(handle);
+              if (chatId === handle && handle.includes("t.me/+")) {
+                console.error(`Recurring "${schedule.name}": cannot resolve invite link ${handle} — channel must be saved in DB with telegram_chat_id`);
+                continue;
               }
 
               // Delete ALL previous messages for this channel from ALL schedules
