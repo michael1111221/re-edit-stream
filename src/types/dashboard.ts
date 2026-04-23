@@ -15,4 +15,4 @@ export type ChannelMapping = Tables<"channel_mappings"> & {
 };
 export type BannedWord = Tables<"banned_words">;
 
-export type PageView = "dashboard" | "channels" | "pipeline" | "schedule" | "settings" | "mappings" | "catalog";
+export type PageView = "dashboard" | "channels" | "pipeline" | "schedule" | "settings" | "mappings" | "catalog" | "scheduler-runs";

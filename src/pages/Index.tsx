@@ -8,6 +8,7 @@ import { VideoPipeline } from "@/components/VideoPipeline";
 import { ScheduleView } from "@/components/ScheduleView";
 import { MappingsView } from "@/components/MappingsView";
 import { CatalogView } from "@/components/CatalogView";
+import { SchedulerRunsView } from "@/components/SchedulerRunsView";
 import { SettingsView } from "@/components/SettingsView";
 import { AddChannelDialog } from "@/components/AddChannelDialog";
 import { PublishDialog } from "@/components/PublishDialog";
@@ -97,6 +98,9 @@ const Index = () => {
                 })}
                 onRefresh={() => queryClient.invalidateQueries({ queryKey: ["scheduled_posts"] })}
               />
+            )}
+            {currentPage === "scheduler-runs" && (
+              <SchedulerRunsView />
             )}
             {currentPage === "settings" && (
               <SettingsView />

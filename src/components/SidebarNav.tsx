@@ -8,6 +8,7 @@ import {
   Send,
   Route,
   BookOpen,
+  Activity,
   LogOut
 } from "lucide-react";
 import { PageView } from "@/types/dashboard";
@@ -27,6 +28,7 @@ const navItems: { id: PageView; label: string; icon: React.ElementType }[] = [
   { id: "catalog", label: "בוט קטלוג", icon: BookOpen },
   { id: "pipeline", label: "תור עיבוד", icon: GitBranch },
   { id: "schedule", label: "תזמון", icon: Calendar },
+  { id: "scheduler-runs", label: "ריצות תזמון", icon: Activity },
   { id: "settings", label: "הגדרות", icon: Settings },
 ];
 
