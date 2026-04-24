@@ -279,12 +279,40 @@ serve(async (req) => {
           continue;
         }
 
+        // Media type filter (all | photos | videos)
+        const mediaFilter = (mapping as any).media_filter || "all";
+        const isPhoto = (t: string) => t === "photo";
+        const isVideo = (t: string) => t === "video" || t === "animation" || t === "gif";
+        const allowsType = (t: string) => {
+          if (mediaFilter === "all") return true;
+          if (mediaFilter === "photos") return isPhoto(t);
+          if (mediaFilter === "videos") return isVideo(t);
+          return true;
+        };
+
         let result;
         if (media_type === "media_group" && Array.isArray(media_group)) {
+          // Filter group items by allowed types
+          const filteredGroup = mediaFilter === "all"
+            ? media_group
+            : media_group.filter((it: any) => allowsType(normalizeTelegramMediaType(it.media_type)));
+          if (filteredGroup.length === 0) {
+            console.log(`Skipping media_group for mapping ${mapping.id} (media_filter=${mediaFilter})`);
+            results.push({ mapping_id: mapping.id, target: mapping.target_channel?.handle, success: false, error: `Filtered: no items match media_filter=${mediaFilter}` });
+            continue;
+          }
           result = await processMediaGroup(
-            supabase, baseUrl, mapping, text, media_group, LOVABLE_API_KEY
+            supabase, baseUrl, mapping, text, filteredGroup, LOVABLE_API_KEY
           );
         } else {
+          // Single item: skip text-only when filter requires media, and skip wrong-type media
+          if (mediaFilter !== "all") {
+            if (media_type === "text" || !allowsType(media_type)) {
+              console.log(`Skipping post for mapping ${mapping.id} (media_filter=${mediaFilter}, type=${media_type})`);
+              results.push({ mapping_id: mapping.id, target: mapping.target_channel?.handle, success: false, error: `Filtered: type ${media_type} blocked by media_filter=${mediaFilter}` });
+              continue;
+            }
+          }
           result = await processMapping(
             supabase, baseUrl, mapping, text, media_type,
             media_base64, media_filename, media_mime,

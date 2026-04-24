@@ -176,6 +176,9 @@ function MappingCard({
   if (mapping.filter_banned_words) rules.push({ icon: ShieldBan, label: "סינון מילים" });
   if ((mapping as any).filter_buttons) rules.push({ icon: Link2Off, label: "סינון כפתורים" });
   if ((mapping as any).strip_text) rules.push({ icon: FileSignature, label: "מדיה בלבד" });
+  const mf = (mapping as any).media_filter;
+  if (mf === "photos") rules.push({ icon: FileSignature, label: "תמונות בלבד" });
+  if (mf === "videos") rules.push({ icon: FileSignature, label: "סרטונים/GIF בלבד" });
 
   return (
     <motion.div
@@ -309,6 +312,9 @@ function EditMappingDialog({
   const [filterBanned, setFilterBanned] = useState(mapping.filter_banned_words);
   const [filterButtons, setFilterButtons] = useState((mapping as any).filter_buttons ?? false);
   const [stripText, setStripText] = useState((mapping as any).strip_text ?? false);
+  const [mediaFilter, setMediaFilter] = useState<"all" | "photos" | "videos">(
+    ((mapping as any).media_filter as "all" | "photos" | "videos") ?? "all"
+  );
   const [buttons, setButtons] = useState<{ text: string; url: string }[]>(
     (mapping.default_buttons as any[]) || []
   );
@@ -367,6 +373,7 @@ function EditMappingDialog({
       filter_banned_words: filterBanned,
       filter_buttons: filterButtons,
       strip_text: stripText,
+      media_filter: mediaFilter,
       default_buttons: buttons,
     });
   };
@@ -481,6 +488,24 @@ function EditMappingDialog({
               <Label>העבר מדיה בלבד (ללא טקסט מקורי)</Label>
             </div>
             <Switch checked={stripText} onCheckedChange={setStripText} />
+          </div>
+
+          {/* Media Filter */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <FileSignature className="w-4 h-4 text-muted-foreground" />
+              <Label>סינון סוגי מדיה להעברה</Label>
+            </div>
+            <Select value={mediaFilter} onValueChange={(v) => setMediaFilter(v as any)}>
+              <SelectTrigger className="bg-secondary border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">כל המדיה</SelectItem>
+                <SelectItem value="photos">רק תמונות</SelectItem>
+                <SelectItem value="videos">רק סרטונים ו-GIF</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Filter Buttons (ads) */}

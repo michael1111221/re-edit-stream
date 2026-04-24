@@ -132,6 +132,7 @@ export type Database = {
           filter_buttons: boolean
           id: string
           is_active: boolean
+          media_filter: string
           remove_links: boolean
           signature_text: string | null
           source_channel_id: string
@@ -150,6 +151,7 @@ export type Database = {
           filter_buttons?: boolean
           id?: string
           is_active?: boolean
+          media_filter?: string
           remove_links?: boolean
           signature_text?: string | null
           source_channel_id: string
@@ -168,6 +170,7 @@ export type Database = {
           filter_buttons?: boolean
           id?: string
           is_active?: boolean
+          media_filter?: string
           remove_links?: boolean
           signature_text?: string | null
           source_channel_id?: string

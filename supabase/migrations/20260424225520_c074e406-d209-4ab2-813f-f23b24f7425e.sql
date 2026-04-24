@@ -1,0 +1,1 @@
+ALTER TABLE public.channel_mappings ADD COLUMN IF NOT EXISTS media_filter TEXT NOT NULL DEFAULT 'all' CHECK (media_filter IN ('all','photos','videos'));
