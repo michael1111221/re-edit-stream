@@ -370,6 +370,7 @@ function EditMappingDialog({
       filter_banned_words: filterBanned,
       filter_buttons: filterButtons,
       strip_text: stripText,
+      media_filter: mediaFilter,
       default_buttons: buttons,
     });
   };
