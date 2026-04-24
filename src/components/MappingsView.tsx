@@ -483,7 +483,24 @@ function EditMappingDialog({
             <div className="flex items-center gap-2">
               <FileSignature className="w-4 h-4 text-muted-foreground" />
               <Label>העבר מדיה בלבד (ללא טקסט מקורי)</Label>
+          </div>
+
+          {/* Media Filter */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <FileSignature className="w-4 h-4 text-muted-foreground" />
+              <Label>סינון סוגי מדיה להעברה</Label>
             </div>
+            <Select value={mediaFilter} onValueChange={(v) => setMediaFilter(v as any)}>
+              <SelectTrigger className="bg-secondary border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">כל המדיה</SelectItem>
+                <SelectItem value="photos">רק תמונות</SelectItem>
+                <SelectItem value="videos">רק סרטונים ו-GIF</SelectItem>
+              </SelectContent>
+            </Select>
             <Switch checked={stripText} onCheckedChange={setStripText} />
           </div>
 
