@@ -30,16 +30,22 @@ interface SchedulerRun {
 
 export function SchedulerRunsView() {
   const [limit, setLimit] = useState(20);
+  const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const { data: runs, isLoading, refetch, isRefetching } = useQuery({
-    queryKey: ["scheduler_runs", limit],
+    queryKey: ["scheduler_runs", limit, showAll],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("scheduler_runs" as any)
         .select("*")
         .order("started_at", { ascending: false })
         .limit(limit);
+      if (!showAll) {
+        // Only runs with activity or errors
+        query = query.or("sends_success.gt.0,sends_failed.gt.0,recurring_matched.gt.0,scheduled_processed.gt.0,error.not.is.null");
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as unknown as SchedulerRun[];
     },
@@ -59,6 +65,15 @@ export function SchedulerRunsView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-foreground bg-card border border-border rounded-md px-3 py-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+              className="accent-primary"
+            />
+            הצג גם ריצות ריקות
+          </label>
           <select
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value))}
