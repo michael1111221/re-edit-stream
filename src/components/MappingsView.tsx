@@ -483,6 +483,8 @@ function EditMappingDialog({
             <div className="flex items-center gap-2">
               <FileSignature className="w-4 h-4 text-muted-foreground" />
               <Label>העבר מדיה בלבד (ללא טקסט מקורי)</Label>
+            </div>
+            <Switch checked={stripText} onCheckedChange={setStripText} />
           </div>
 
           {/* Media Filter */}
@@ -501,7 +503,6 @@ function EditMappingDialog({
                 <SelectItem value="videos">רק סרטונים ו-GIF</SelectItem>
               </SelectContent>
             </Select>
-            <Switch checked={stripText} onCheckedChange={setStripText} />
           </div>
 
           {/* Filter Buttons (ads) */}
