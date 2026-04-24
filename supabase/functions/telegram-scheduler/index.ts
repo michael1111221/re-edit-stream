@@ -157,6 +157,9 @@ serve(async (req) => {
       const currentDay = israelTime.getDay();
       const currentHour = israelTime.getHours();
       const currentMinute = israelTime.getMinutes();
+      // For late-night schedules (00:00-02:00), treat them as "belonging to" the previous day.
+      // e.g. a schedule set on Thursday at 00:00 should fire on the night between Thu and Fri.
+      const previousDay = (currentDay + 6) % 7;
 
       const { data: allChannels } = await supabase.from("channels").select("handle, telegram_chat_id");
       const channelChatIdMap: Record<string, string> = {};
@@ -182,7 +185,6 @@ serve(async (req) => {
         try {
           const days: number[] = schedule.days_of_week || [];
           const timeOfDayRaw: string = schedule.time_of_day || "12:00";
-          if (!days.includes(currentDay)) continue;
 
           const times = timeOfDayRaw.split(",").map(t => t.trim()).filter(Boolean);
           let matchedTime: string | null = null;
@@ -190,7 +192,12 @@ serve(async (req) => {
             const [schedH, schedM] = t.split(":").map(Number);
             const schedMinutes = schedH * 60 + schedM;
             const nowMinutes = currentHour * 60 + currentMinute;
-            if (Math.abs(nowMinutes - schedMinutes) <= 1) { matchedTime = t; break; }
+            if (Math.abs(nowMinutes - schedMinutes) > 1) continue;
+            // Late-night schedules (00:00-01:59) are considered part of the PREVIOUS day
+            const effectiveDay = schedH < 2 ? previousDay : currentDay;
+            if (!days.includes(effectiveDay)) continue;
+            matchedTime = t;
+            break;
           }
           if (!matchedTime) continue;
 
