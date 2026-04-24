@@ -322,17 +322,29 @@ serve(async (req) => {
       }
     }
 
-    // Persist run log (only if there was activity OR every invocation? log only meaningful runs)
-    if ((duePosts?.length || 0) > 0 || recurringMatched > 0 || sendsFailed > 0) {
-      await supabase.from("scheduler_runs").insert({
-        started_at: runStart,
-        finished_at: new Date().toISOString(),
-        scheduled_processed: duePosts?.length || 0,
-        recurring_matched: recurringMatched,
-        sends_success: sendsSuccess,
-        sends_failed: sendsFailed,
-        details: runDetails,
-      });
+    // Persist run log for EVERY invocation so the dashboard shows the scheduler is alive
+    await supabase.from("scheduler_runs").insert({
+      started_at: runStart,
+      finished_at: new Date().toISOString(),
+      scheduled_processed: duePosts?.length || 0,
+      recurring_matched: recurringMatched,
+      sends_success: sendsSuccess,
+      sends_failed: sendsFailed,
+      details: runDetails,
+    });
+
+    // Keep only the most recent 200 runs to avoid bloat
+    try {
+      const { data: oldRuns } = await supabase
+        .from("scheduler_runs")
+        .select("id")
+        .order("started_at", { ascending: false })
+        .range(200, 999);
+      if (oldRuns && oldRuns.length > 0) {
+        await supabase.from("scheduler_runs").delete().in("id", oldRuns.map(r => r.id));
+      }
+    } catch (e) {
+      console.log("Cleanup error (non-fatal):", e);
     }
 
     return new Response(JSON.stringify({ message: "Done", scheduled: duePosts?.length || 0, recurring: recurringSchedules?.length || 0 }));
