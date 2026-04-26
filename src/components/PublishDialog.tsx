@@ -401,21 +401,23 @@ export function PublishDialog({ open, onOpenChange, channels, onScheduled }: Pub
     const chatId = resolveChatId(channelHandle);
     if (fileUrl) {
       const fileType = mediaType as "photo" | "video" | "document" || (attachedFile ? getFileType(attachedFile) : "document");
-      // Videos are sent as animations (GIF) for auto-play without sound
-      const actionMap = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
-      const fieldMap = { photo: "photo", video: "animation", document: "document" };
+      // Send as proper media so Telegram embeds it (video as sendVideo, not sendAnimation —
+      // sendAnimation requires silent MP4 and otherwise causes Telegram to deliver a file).
+      const actionMap = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
+      const fieldMap = { photo: "photo", video: "video", document: "document" };
 
       let { data, error } = await supabase.functions.invoke("telegram-bot", {
         body: {
           action: actionMap[fileType],
-           chat_id: chatId,
+          chat_id: chatId,
           [fieldMap[fileType]]: fileUrl,
           caption: caption.trim() || undefined,
           inline_buttons: validButtons.length > 0 ? validButtons : undefined,
         },
       });
 
-      if (!error && data?.ok === false && fileType === "photo") {
+      // Fallback: if Telegram refused the embedded media, retry as document so the user still gets it
+      if (!error && data?.ok === false && (fileType === "photo" || fileType === "video")) {
         const retry = await supabase.functions.invoke("telegram-bot", {
           body: {
             action: "sendDocument",
