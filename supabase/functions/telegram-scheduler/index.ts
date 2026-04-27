@@ -28,6 +28,7 @@ async function sendMediaFromUrl(
     if (!fileResp.ok) return result;
     const fileBlob = await fileResp.blob();
     const fallbackName = action === "sendPhoto" ? "image.jpg" :
+                         action === "sendVideo" ? "video.mp4" :
                          action === "sendAnimation" ? "animation.mp4" : "file";
     const formData = new FormData();
     formData.append(fieldName, fileBlob, fallbackName);
