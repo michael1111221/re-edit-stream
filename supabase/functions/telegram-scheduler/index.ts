@@ -28,6 +28,7 @@ async function sendMediaFromUrl(
     if (!fileResp.ok) return result;
     const fileBlob = await fileResp.blob();
     const fallbackName = action === "sendPhoto" ? "image.jpg" :
+                         action === "sendVideo" ? "video.mp4" :
                          action === "sendAnimation" ? "animation.mp4" : "file";
     const formData = new FormData();
     formData.append(fieldName, fileBlob, fallbackName);
@@ -108,13 +109,13 @@ serve(async (req) => {
           let result: any;
 
           if (post.media_url && post.media_type) {
-            const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
-            const fieldMap: Record<string, string> = { photo: "photo", video: "animation", document: "document" };
+            const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
+            const fieldMap: Record<string, string> = { photo: "photo", video: "video", document: "document" };
             const action = actionMap[post.media_type] || "sendDocument";
             const field = fieldMap[post.media_type] || "document";
-            const params: Record<string, any> = { chat_id: chatId, caption: post.title || undefined, parse_mode: "HTML" };
+            const params: Record<string, any> = { chat_id: chatId, caption: post.caption || undefined, parse_mode: "HTML" };
             result = await sendMediaFromUrl(baseUrl, action, field, post.media_url, params, replyMarkup);
-            if (!result.ok && post.media_type === "photo") {
+            if (!result.ok && (post.media_type === "photo" || post.media_type === "video")) {
               result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", post.media_url, params, replyMarkup);
             }
           } else {
@@ -279,13 +280,13 @@ serve(async (req) => {
 
               let result: any;
               if (mediaUrl && mediaType) {
-                const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
-                const fieldMap: Record<string, string> = { photo: "photo", video: "animation", document: "document" };
+                const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
+                const fieldMap: Record<string, string> = { photo: "photo", video: "video", document: "document" };
                 const action = actionMap[mediaType] || "sendDocument";
                 const field = fieldMap[mediaType] || "document";
                 const params: Record<string, any> = { chat_id: chatId, caption: caption || undefined, parse_mode: "HTML" };
                 result = await sendMediaFromUrl(baseUrl, action, field, mediaUrl, params, replyMarkup);
-                if (!result.ok && mediaType === "photo") {
+                if (!result.ok && (mediaType === "photo" || mediaType === "video")) {
                   result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", mediaUrl, params, replyMarkup);
                 }
               } else {
