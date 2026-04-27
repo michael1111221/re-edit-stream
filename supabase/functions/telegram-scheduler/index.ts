@@ -280,13 +280,13 @@ serve(async (req) => {
 
               let result: any;
               if (mediaUrl && mediaType) {
-                const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendAnimation", document: "sendDocument" };
-                const fieldMap: Record<string, string> = { photo: "photo", video: "animation", document: "document" };
+                const actionMap: Record<string, string> = { photo: "sendPhoto", video: "sendVideo", document: "sendDocument" };
+                const fieldMap: Record<string, string> = { photo: "photo", video: "video", document: "document" };
                 const action = actionMap[mediaType] || "sendDocument";
                 const field = fieldMap[mediaType] || "document";
                 const params: Record<string, any> = { chat_id: chatId, caption: caption || undefined, parse_mode: "HTML" };
                 result = await sendMediaFromUrl(baseUrl, action, field, mediaUrl, params, replyMarkup);
-                if (!result.ok && mediaType === "photo") {
+                if (!result.ok && (mediaType === "photo" || mediaType === "video")) {
                   result = await sendMediaFromUrl(baseUrl, "sendDocument", "document", mediaUrl, params, replyMarkup);
                 }
               } else {
