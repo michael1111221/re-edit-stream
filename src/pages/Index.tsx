@@ -47,9 +47,42 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background" dir="rtl">
-      <SidebarNav currentPage={currentPage} onNavigate={setCurrentPage} onPublish={() => setPublishOpen(true)} />
+      <SidebarNav
+        currentPage={currentPage}
+        onNavigate={setCurrentPage}
+        onPublish={() => setPublishOpen(true)}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      <main className="mr-56 p-6">
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 px-3 sm:px-4 h-14 border-b border-border bg-background/95 backdrop-blur">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 -m-2 rounded-md text-foreground hover:bg-secondary/60"
+          aria-label="פתח תפריט"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-md gradient-primary flex items-center justify-center shrink-0">
+            <Zap className="w-4 h-4 text-primary-foreground" />
+          </div>
+          <span className="font-semibold text-foreground text-base sm:text-lg truncate">
+            {pageTitles[currentPage]}
+          </span>
+        </div>
+
+        <button
+          onClick={() => setPublishOpen(true)}
+          className="p-2 -m-2 rounded-md text-primary hover:bg-secondary/60"
+          aria-label="פרסם לטלגרם"
+        >
+          <Send className="w-5 h-5" />
+        </button>
+      </header>
+
+      <main className="px-3 sm:px-4 md:px-6 py-4 sm:py-6 max-w-full overflow-x-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentPage}
