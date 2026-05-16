@@ -343,6 +343,8 @@ export function SettingsView() {
     <div className="space-y-6 max-w-2xl" dir="rtl">
       <h2 className="text-xl font-semibold text-foreground">הגדרות</h2>
 
+      <AccountSettings />
+
       {/* MTProto Setup Wizard */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
