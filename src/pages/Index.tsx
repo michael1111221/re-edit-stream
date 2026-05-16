@@ -16,11 +16,24 @@ import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { PageView, Channel } from "@/types/dashboard";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { Menu, Send, Zap } from "lucide-react";
+
+const pageTitles: Record<PageView, string> = {
+  dashboard: "דאשבורד",
+  channels: "ערוצים",
+  mappings: "מיפויים",
+  catalog: "בוט קטלוג",
+  pipeline: "תור עיבוד",
+  schedule: "תזמון",
+  "scheduler-runs": "ריצות תזמון",
+  settings: "הגדרות",
+};
 
 const Index = () => {
   const [currentPage, setCurrentPage] = useState<PageView>("dashboard");
   const [addChannelOpen, setAddChannelOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { channels, videos, schedule, stats, addChannel, updateChannel, deleteChannel, deleteScheduledPost } = useDashboardData();
   const { toast } = useToast();
   const queryClient = useQueryClient();
