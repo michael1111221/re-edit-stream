@@ -99,6 +99,123 @@ function CatalogBotWebhook() {
   );
 }
 
+function AccountSettings() {
+  const { toast } = useToast();
+  const [currentEmail, setCurrentEmail] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const email = data.user?.email || "";
+      setCurrentEmail(email);
+      setNewEmail(email);
+    });
+  }, []);
+
+  const handleUpdateEmail = async () => {
+    if (!newEmail || newEmail === currentEmail) {
+      toast({ title: "לא בוצע שינוי", description: "הזן אימייל חדש שונה מהנוכחי", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      if (error) throw error;
+      toast({ title: "✅ בקשת עדכון אימייל נשלחה", description: "ייתכן שיידרש אישור באימייל החדש" });
+      setCurrentEmail(newEmail);
+    } catch (err: any) {
+      toast({ title: "שגיאה", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (newPassword.length < 6) {
+      toast({ title: "סיסמה קצרה מדי", description: "לפחות 6 תווים", variant: "destructive" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: "הסיסמאות אינן תואמות", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      toast({ title: "✅ הסיסמה עודכנה בהצלחה" });
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      toast({ title: "שגיאה", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-lg border border-border bg-card p-5 shadow-card space-y-5"
+    >
+      <div className="flex items-center gap-2 text-foreground">
+        <User className="w-5 h-5 text-primary" />
+        <h3 className="font-medium">פרטי התחברות</h3>
+      </div>
+
+      <div className="space-y-3">
+        <Label className="text-sm text-muted-foreground">אימייל</Label>
+        <div className="flex gap-2">
+          <Input
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            className="bg-secondary border-border flex-1"
+            dir="ltr"
+          />
+          <Button onClick={handleUpdateEmail} disabled={saving || newEmail === currentEmail} size="sm">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "עדכן אימייל"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-4 space-y-3">
+        <Label className="text-sm text-muted-foreground">שינוי סיסמה</Label>
+        <div className="relative">
+          <Input
+            type={showPwd ? "text" : "password"}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="סיסמה חדשה (לפחות 6 תווים)"
+            className="bg-secondary border-border pl-10"
+            dir="ltr"
+          />
+          <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+        <Input
+          type={showPwd ? "text" : "password"}
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          placeholder="אישור סיסמה חדשה"
+          className="bg-secondary border-border"
+          dir="ltr"
+        />
+        <Button onClick={handleUpdatePassword} disabled={saving || !newPassword} size="sm" className="gap-2">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+          עדכן סיסמה
+        </Button>
+      </div>
+    </motion.div>
+  );
+}
+
 export function SettingsView() {
   const { toast } = useToast();
   const [webhookLoading, setWebhookLoading] = useState(false);
