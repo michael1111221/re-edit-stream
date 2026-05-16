@@ -4,14 +4,26 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionKeeper } from "@/hooks/use-session-keeper";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      staleTime: 30_000,
+    },
+  },
+});
 
 function AppContent() {
   const { user, loading, signIn, signOut } = useAuth();
+  useSessionKeeper();
 
   if (loading) {
     return (
