@@ -350,6 +350,13 @@ def classify_media(message) -> str:
         if doc is None:
             return "document"
 
+        # Check sticker FIRST — video stickers (.webm) also have DocumentAttributeVideo
+        # and animated stickers (.tgs) have DocumentAttributeAnimated, which would
+        # otherwise mis-classify them as "video"/"animation".
+        for attr in doc.attributes:
+            if isinstance(attr, DocumentAttributeSticker):
+                return "sticker"
+
         for attr in doc.attributes:
             if isinstance(attr, DocumentAttributeAnimated):
                 return "animation"
