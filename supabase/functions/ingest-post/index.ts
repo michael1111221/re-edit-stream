@@ -280,9 +280,10 @@ serve(async (req) => {
         }
 
         // Media type filter (all | photos | videos)
+        // Strict: stickers, documents, animations (animated stickers/GIFs) are NOT videos.
         const mediaFilter = (mapping as any).media_filter || "all";
         const isPhoto = (t: string) => t === "photo";
-        const isVideo = (t: string) => t === "video" || t === "animation" || t === "gif";
+        const isVideo = (t: string) => t === "video";
         const allowsType = (t: string) => {
           if (mediaFilter === "all") return true;
           if (mediaFilter === "photos") return isPhoto(t);
@@ -292,10 +293,11 @@ serve(async (req) => {
 
         let result;
         if (media_type === "media_group" && Array.isArray(media_group)) {
-          // Filter group items by allowed types
+          // Filter group items by allowed types using the RAW media_type (not normalized),
+          // so stickers/documents are correctly rejected instead of being treated as photos.
           const filteredGroup = mediaFilter === "all"
             ? media_group
-            : media_group.filter((it: any) => allowsType(normalizeTelegramMediaType(it.media_type)));
+            : media_group.filter((it: any) => allowsType(it.media_type));
           if (filteredGroup.length === 0) {
             console.log(`Skipping media_group for mapping ${mapping.id} (media_filter=${mediaFilter})`);
             results.push({ mapping_id: mapping.id, target: mapping.target_channel?.handle, success: false, error: `Filtered: no items match media_filter=${mediaFilter}` });
