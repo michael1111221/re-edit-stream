@@ -40,6 +40,7 @@ from telethon.tl.types import (
     MessageMediaDocument,
     DocumentAttributeVideo,
     DocumentAttributeAnimated,
+    DocumentAttributeSticker,
     ReplyInlineMarkup,
     ReplyKeyboardMarkup,
 )
